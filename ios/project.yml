@@ -1,0 +1,26 @@
+name: Racnet
+options:
+  bundleIdPrefix: org.racnet
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Racnet:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - framework: ../bindings/swift/out/RacnetCore.xcframework
+        embed: false
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.racnet.ios
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  Racnet:
+    build:
+      targets:
+        Racnet: all
