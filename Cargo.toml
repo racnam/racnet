@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["core", "anchor", "uniffi-bindgen"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+uniffi = "0.32.0"
+
+[profile.release]
+lto = true
+# "symbols" would delete .symtab, which UniFFI's library-mode binding
+# generation reads its metadata from.
+strip = "debuginfo"
