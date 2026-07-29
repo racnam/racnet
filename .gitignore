@@ -1,0 +1,27 @@
+# Rust
+target/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+android/app/src/main/java/uniffi/
+android/.kotlin/
+*.apk
+*.aab
+
+# iOS / Xcode
+ios/Racnet.xcodeproj/
+ios/Sources/Generated/
+ios/build/
+ios/DerivedData/
+bindings/swift/out/
+*.xcframework
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
