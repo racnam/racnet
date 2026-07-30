@@ -30,8 +30,9 @@ it does: progress requires that the budget remaining at the start of a
 message always fits one full range split (an id list of 31 ids runs to
 ~1 KB) — under a smaller budget that range is discarded every round and
 reconciliation livelocks. Property tests demonstrated exactly that.
-Reconciliation messages therefore pad to 4096-byte frames (a valid
-ADR-0005 padded length) rather than 2048.
+Reconciliation messages near the limit therefore pad to 4096-byte frames
+(a valid ADR-0005 padded length) or the next block above it, rather
+than 2048.
 
 ## Consequences
 

@@ -47,7 +47,8 @@ the simulated transport. Still no radio.
   varint count, first 16 bytes), and the range-splitting engine with
   initiator/responder roles, frame-size-limit continuation, and the
   single-byte version-negotiation reply — behind a `NegentropyStore` trait
-  implemented by both the sealed snapshot and `OrderIndex` (ADR-0010). No
+  implemented by both the sealed snapshot and `OrderIndex` (ADRs 0010 and
+  0011). No
   new dependencies; no panics on untrusted input.
 - `core/src/sync/session.rs`: `Syncer` managing concurrent directional
   sessions keyed by (opened-by-us, sid) with parity allocation, snapshot

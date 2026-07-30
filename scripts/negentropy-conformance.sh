@@ -49,4 +49,22 @@ cp "$root/target/release/examples/negentropy_harness" \
 
 cd "$work/negentropy/test"
 perl test.pl "$LANGS"
+
+# test.pl's fuzz.pl invocations are all seed-0 deterministic; follow with a
+# time-boxed randomized fuzz pass (FUZZ_SECONDS per language pair).
+fuzz_deadline=$(($(date +%s) + ${FUZZ_SECONDS:-60}))
+fuzz_runs=0
+while [ "$(date +%s)" -lt "$fuzz_deadline" ]; do
+    seed=$((RANDOM * 32768 + RANDOM))
+    recs=$((RANDOM % 20000 + 100))
+    fl1=$((RANDOM % 60000 + 4096))
+    fl2=$((RANDOM % 60000 + 4096))
+    for pair in $(echo "$LANGS" | tr ',' ' '); do
+        SEED=$seed RECS=$recs P1=2 P2=2 P3=7 \
+            FRAMESIZELIMIT1=$fl1 FRAMESIZELIMIT2=$fl2 \
+            perl fuzz.pl rust "$pair" >/dev/null
+    done
+    fuzz_runs=$((fuzz_runs + 1))
+done
+echo "randomized fuzz: $fuzz_runs seeds against: $LANGS"
 echo "negentropy conformance OK: $LANGS at ${UPSTREAM_COMMIT:0:7}"

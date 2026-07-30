@@ -15,7 +15,10 @@ pub const FINGERPRINT_SIZE: usize = 16;
 
 /// A computed range fingerprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Fingerprint(pub [u8; FINGERPRINT_SIZE]);
+pub struct Fingerprint(
+    /// The fingerprint bytes as they appear on the wire.
+    pub [u8; FINGERPRINT_SIZE],
+);
 
 /// Sum of element ids modulo 2^256, in four little-endian u64 limbs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
