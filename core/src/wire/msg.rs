@@ -100,9 +100,24 @@ impl Message {
     }
 }
 
+/// CDDL occurrence constraints are normative in both directions
+/// (PROTOCOL.md §3.1).
+fn validate(msg: &Message) -> Result<(), WireError> {
+    match msg {
+        Message::Hello(h) if h.versions.is_empty() => {
+            Err(WireError::Schema("hello versions list must not be empty"))
+        }
+        Message::GossipPush(p) if p.entries.is_empty() => Err(WireError::Schema(
+            "gossip-push entries list must not be empty",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Encodes a message as a padded inner message: header, CBOR payload, zero
 /// padding to the block boundary (PROTOCOL.md §1.2–1.3).
 pub fn encode_message(msg: &Message) -> Result<Vec<u8>, WireError> {
+    validate(msg)?;
     let payload = msg.payload_bytes();
     let unpadded = HEADER_LEN + payload.len();
     let padded = padded_len(unpadded).ok_or(WireError::TooLarge)?;
@@ -146,6 +161,7 @@ pub fn decode_message(body: &[u8]) -> Result<Message, WireError> {
     if dec.position() != payload.len() {
         return Err(WireError::TrailingBytes);
     }
+    validate(&msg)?;
     Ok(msg)
 }
 
@@ -193,6 +209,36 @@ mod tests {
             decode_message(&[0u8; 10]),
             Err(WireError::BadFrameLength(10))
         );
+    }
+
+    #[test]
+    fn empty_occurrence_constraints_are_rejected() {
+        let empty_hello = Message::Hello(Hello {
+            versions: vec![],
+            features: 0,
+            transports: vec![],
+        });
+        assert!(matches!(
+            encode_message(&empty_hello),
+            Err(WireError::Schema(_))
+        ));
+
+        // The same payload arriving off the wire is rejected on decode.
+        let mut out = Vec::new();
+        minicbor::encode(
+            &Hello {
+                versions: vec![],
+                features: 0,
+                transports: vec![],
+            },
+            &mut out,
+        )
+        .unwrap();
+        let mut body = vec![MsgType::Hello as u8];
+        body.extend_from_slice(&(out.len() as u16).to_be_bytes());
+        body.extend_from_slice(&out);
+        body.resize(256, 0);
+        assert!(matches!(decode_message(&body), Err(WireError::Schema(_))));
     }
 
     #[test]

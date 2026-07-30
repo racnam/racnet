@@ -9,9 +9,14 @@ pub enum WireError {
     /// The frame body length is not a valid padded length for its payload.
     #[error("invalid frame body length {0}")]
     BadFrameLength(usize),
-    /// The declared payload length does not fit inside the frame body.
-    #[error("payload length {0} does not fit frame body")]
+    /// The frame body is not exactly the padded length required for its
+    /// declared payload: the payload overruns the body, or the body is
+    /// over- or under-padded.
+    #[error("payload length {0} inconsistent with frame body length")]
     BadPayloadLength(usize),
+    /// The payload decoded but violates a schema constraint (PROTOCOL.md §3.1).
+    #[error("payload violates schema: {0}")]
+    Schema(&'static str),
     /// The message type is unassigned or reserved.
     #[error("unknown or reserved message type {0:#04x}")]
     UnknownMsgType(u8),

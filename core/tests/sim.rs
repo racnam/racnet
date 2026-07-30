@@ -112,6 +112,33 @@ fn partition_blocks_datagrams_until_heal() {
 }
 
 #[test]
+fn partitioned_stream_drops_the_link_and_reconnect_restores_it() {
+    let mut net = SimNet::new(5);
+    let a = net.add_node();
+    let b = net.add_node();
+    net.connect(a, b, ble_stream());
+
+    net.partition(&[&[a], &[b]]);
+    assert!(net.send(a, b, &[0; 10]).is_err());
+    net.run_until_idle();
+    assert_eq!(net.take_inbox(b), vec![Delivery::LinkDown { peer: a }]);
+    assert_eq!(net.take_inbox(a), vec![Delivery::LinkDown { peer: b }]);
+
+    net.heal();
+    assert!(net.send(a, b, &[0; 10]).is_err(), "link stays down");
+    net.connect(a, b, ble_stream());
+    net.send(a, b, &[7; 10]).unwrap();
+    net.run_until_idle();
+    assert_eq!(
+        net.take_inbox(b),
+        vec![Delivery::Data {
+            from: a,
+            bytes: vec![7; 10]
+        }]
+    );
+}
+
+#[test]
 fn stream_loss_drops_the_link_not_bytes() {
     let mut net = SimNet::new(9);
     let a = net.add_node();

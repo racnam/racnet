@@ -1,4 +1,4 @@
-//! Signed append-only entries: encoding, identity, signatures (PROTOCOL.md §3.1).
+//! Signed append-only entries: encoding, identity, signatures (PROTOCOL.md §3.5).
 //!
 //! Entries are a fixed positional CBOR array because they are hashed and
 //! signed: positional encoding removes any key-ordering ambiguity from the
@@ -7,13 +7,13 @@
 //! non-canonical transmission cannot fork an entry's id.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use minicbor::{Decode, Encode};
+use minicbor::Encode;
 use sha2::{Digest, Sha256};
 
 use super::error::WireError;
 
-/// A signed append-only entry (PROTOCOL.md §3.1).
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+/// A signed append-only entry (PROTOCOL.md §3.5).
+#[derive(Debug, Clone, PartialEq, Eq, Encode)]
 #[cbor(array)]
 pub struct Entry {
     /// Author's Ed25519 public key.
@@ -34,6 +34,26 @@ pub struct Entry {
     #[n(4)]
     #[cbor(with = "minicbor::bytes")]
     pub sig: [u8; 64],
+}
+
+/// Hand-written decoder: the derive would tolerate extra array elements,
+/// but the spec requires rejecting any arity other than exactly 5
+/// (PROTOCOL.md §3.1).
+impl<'b, C> minicbor::Decode<'b, C> for Entry {
+    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        if d.array()? != Some(5) {
+            return Err(minicbor::decode::Error::message(
+                "entry is a fixed 5-element array",
+            ));
+        }
+        Ok(Entry {
+            author: minicbor::bytes::decode(d, ctx)?,
+            sort_key: d.u64()?,
+            kind: d.u64()?,
+            payload: minicbor::bytes::decode(d, ctx)?,
+            sig: minicbor::bytes::decode(d, ctx)?,
+        })
+    }
 }
 
 impl Entry {
@@ -106,6 +126,22 @@ mod tests {
         let mut entry = Entry::sign(&test_key(), 1_700_000_000_000, 0, b"payload".to_vec());
         entry.kind = 1;
         assert_eq!(entry.verify(), Err(WireError::BadSignature));
+    }
+
+    #[test]
+    fn entry_arity_is_exactly_five() {
+        let entry = Entry::sign(&test_key(), 1, 0, vec![]);
+        let canonical = entry.to_bytes();
+        assert_eq!(minicbor::decode::<Entry>(&canonical).unwrap(), entry);
+
+        // Six elements: bump the array head and append one item.
+        let mut extended = canonical.clone();
+        extended[0] = 0x86;
+        extended.push(0x00);
+        assert!(minicbor::decode::<Entry>(&extended).is_err());
+
+        // Four elements: the tbs encoding is not an entry.
+        assert!(minicbor::decode::<Entry>(&entry.tbs_bytes()).is_err());
     }
 
     #[test]

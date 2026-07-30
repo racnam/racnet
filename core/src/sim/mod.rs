@@ -159,14 +159,24 @@ impl SimNet {
         NodeId(self.inboxes.len() - 1)
     }
 
-    /// Connects two nodes with a link.
+    /// Connects two nodes with a link. Reconnecting an existing pair
+    /// replaces the link's configuration and brings it back up.
     pub fn connect(&mut self, a: NodeId, b: NodeId, config: LinkConfig) {
-        self.links.push(Link {
-            a,
-            b,
-            config,
-            up: true,
-        });
+        if let Some(link) = self
+            .links
+            .iter_mut()
+            .find(|l| (l.a == a && l.b == b) || (l.a == b && l.b == a))
+        {
+            link.config = config;
+            link.up = true;
+        } else {
+            self.links.push(Link {
+                a,
+                b,
+                config,
+                up: true,
+            });
+        }
     }
 
     /// Splits the network into isolated groups. Nodes in different groups —
