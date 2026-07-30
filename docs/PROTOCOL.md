@@ -1,6 +1,6 @@
 # Racnet Wire Protocol
 
-**Spec version: 0.1.1 · wire protocol version 1**
+**Spec version: 0.1.2 · wire protocol version 1**
 
 This document is the source of truth for the Racnet wire protocol. Where any
 implementation disagrees with this document, the implementation is wrong.
@@ -12,7 +12,7 @@ described in RFC 2119.
 
 Conventions: all multi-byte integers outside CBOR are big-endian (network
 byte order). CBOR is big-endian by construction. Byte counts are in octets.
-Non-obvious choices in this document are recorded as ADRs 0003–0007 in
+Non-obvious choices in this document are recorded as numbered ADRs in
 `docs/DECISIONS/`.
 
 ## 1. Framing
@@ -46,6 +46,17 @@ size limit; no larger frame can ever be needed.
 Frames arrive back-to-back on the stream with no interleaving. Decoders
 MUST tolerate arbitrary segmentation of the stream (a frame may arrive
 across any number of reads).
+
+In the transport epoch the body is a Noise transport message: the
+ciphertext of a padded inner message followed by the 16-octet AEAD tag.
+Noise messages are encrypted with empty associated data; in particular the
+`len` prefix sits outside the Noise message and is not authenticated —
+tampering with it desynchronizes framing or fails decryption, and either
+way the link closes silently (§4.4). Before attempting decryption, a
+receiver MUST reject a transport-epoch body whose length is not exactly
+16 octets more than a permitted padded length (§1.3); such a body cannot
+be authentic, and rejection is handled silently like any decryption
+failure (§4.4, §7).
 
 ### 1.2 Inner message
 
@@ -242,9 +253,12 @@ peer's long-term identity at this layer is its Curve25519 static key; its
 fingerprint is the SHA-256 of the static public key. Binding a fingerprint
 to a person is an application-layer claim and is out of scope here.
 
-This section is normative for protocol version 1. It is specified now and
-implemented in a later milestone; until then implementations interoperate
-in the cleartext epoch only.
+A **link** is one transport connection between two peers. The peer that
+opened the transport connection is the link's initiator, and that one fact
+fixes every directional role the link carries: it is the Noise initiator
+(§4.1) and it uses even reconciliation session ids (§6.2).
+
+This section is normative for protocol version 1.
 
 ### 4.1 Sequence
 
@@ -258,6 +272,10 @@ transport connection is the initiator.
 | 3 | I → R     | HANDSHAKE | Noise XX message 1: `e`        |
 | 4 | R → I     | HANDSHAKE | Noise XX message 2: `e, ee, s, es` |
 | 5 | I → R     | HANDSHAKE | Noise XX message 3: `s, se`    |
+
+The initiator MUST NOT send message 3 before it has received the
+responder's HELLO: the prologue (§4.2) requires both HELLO bodies, so the
+handshake cannot be pipelined past the HELLO exchange.
 
 After message 5 both sides hold transport CipherStates and the link enters
 the **transport epoch**: every subsequent outer frame body is a Noise
@@ -276,11 +294,23 @@ nothing else — in particular, no fixed protocol constant.
 ### 4.3 Rekeying
 
 Static session keys for the life of a link are the failure mode to avoid.
-Each direction MUST call the Noise `Rekey` function on its sending
-CipherState after every 1 024 transport messages it has sent, and each
-receiver does the same to its receiving CipherState on the same counts.
-Counter-based rekeying needs no signaling. A session MUST NOT outlive 24
-hours of continuous connection without a full new handshake.
+Rekeying is defined by the CipherState nonce: immediately before
+encrypting or decrypting the message whose nonce `n` is a nonzero multiple
+of 1 024, the CipherState MUST be rekeyed with the Noise `Rekey` function.
+`Rekey` replaces the key and does not reset `n`, so messages with nonces
+0–1023 use the initial key, 1024–2047 the next, and so on. Over the
+reliable ordered stream both CipherStates of a direction advance in
+lockstep, so counter-based rekeying needs no signaling.
+
+The nonce value `2^64 − 1` is reserved by Noise for `Rekey` itself. A
+CipherState whose nonce reaches it MUST NOT encrypt or decrypt again; the
+link is closed silently. In practice the limit below is reached long
+before the nonce space is.
+
+A session MUST NOT outlive 24 hours of continuous connection without a
+full new handshake. There is no in-band rehandshake in version 1:
+satisfying the limit means closing the link and reconnecting, which runs
+a fresh handshake with fresh ephemeral keys.
 
 ### 4.4 Replay protection
 
@@ -299,6 +329,13 @@ rate-limit handshakes per remote transport address (token bucket, burst 3,
 refill 1 per 5 seconds) and SHOULD cap concurrent half-open handshakes
 (32). These are local-policy defaults, not wire-visible values.
 
+A handshake refused for rate-limit reasons is dropped silently — the
+connection is closed with no ERROR, consistent with §7's rule that the
+cleartext epoch never carries any ERROR except code 2. Implementations
+SHOULD also bound how long a half-open handshake may wait for its next
+message (default 30 seconds); without a timeout, the cap on concurrent
+half-open handshakes is a lever rather than a limit.
+
 ## 5. Version negotiation
 
 Each HELLO lists every protocol version the sender can speak. The
@@ -314,8 +351,8 @@ version-downgrade attack surfaces as a handshake failure.
 
 The wire protocol version increments only on breaking change. Additive
 change — new optional map keys, new feature bits, new transport values —
-rides on the extension points of §3.1 within a version. This document, spec
-0.1.0, defines wire protocol version 1.
+rides on the extension points of §3.1 within a version. This document
+defines wire protocol version 1.
 
 ## 6. Set reconciliation
 
@@ -592,3 +629,128 @@ aaaa
 
 With `msg` one octet longer (250 × `0xaa`), the unpadded inner length is
 257 and the message pads to the next block: body 512 octets, frame 514.
+
+### 8.7 Session establishment
+
+A complete link establishment and one transport message, from fixed keys.
+X25519 secret keys are given as the raw 32 octets before clamping. These
+keys exist for test vectors only and MUST NOT be trusted by any
+deployment.
+
+```
+initiator static secret  1111111111111111111111111111111111111111111111111111111111111111
+initiator static public  7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13
+responder static secret  2222222222222222222222222222222222222222222222222222222222222222
+responder static public  0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20
+initiator ephemeral      3333333333333333333333333333333333333333333333333333333333333333
+responder ephemeral      4444444444444444444444444444444444444444444444444444444444444444
+```
+
+Both peers send the §8.2 HELLO frame (versions `[1]`, features 0,
+transports `[1]`), so the Noise prologue is the §8.2 body — the 256
+octets after the length prefix — twice: 512 octets.
+
+HANDSHAKE frame 1, I → R, Noise `e` (32 octets). Breakdown: `0100` outer
+length 256 · `02` HANDSHAKE · `0024` payload length 36 · `a1005820` +
+Noise message `{0: h'…'}` · zeros to 256. Complete frame (258 octets):
+
+```
+0100020024a10058207b0d47d93427f8
+311160781c7c733fd89f88970aef490d
+8aa0ee19a4cb8a1b1400000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+0000
+```
+
+HANDSHAKE frame 2, R → I, Noise `e, ee, s, es` (96 octets). Breakdown:
+`0100` · `02` · `0064` payload length 100 · `a1005860` + Noise message ·
+zeros to 256. Complete frame (258 octets):
+
+```
+0100020064a1005860ff2ee45601ec1b
+67310c7790404585ae697331eee1c1f8
+cf2419731c1fff3e6bfcadb15080d9fd
+0434a18565751d3b6022bec571f33b62
+12486a1bffa54d1a1ee60dcda08460b0
+09fb2fb84181369eb00b8fe4f251c8de
+e26310282c86c7614800000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+0000
+```
+
+HANDSHAKE frame 3, I → R, Noise `s, se` (64 octets). Breakdown: `0100` ·
+`02` · `0044` payload length 68 · `a1005840` + Noise message · zeros to
+256. Complete frame (258 octets):
+
+```
+0100020044a1005840a7ea7dd47dddbc
+fcd736b91b174c6107b2ad26c161965a
+119a7b644e0c6b3d06c59f012ae05b63
+213c8ca7ddaaa7104b82a41b2ca5526d
+bf14f2813b45be6f7400000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+00000000000000000000000000000000
+0000
+```
+
+Noise handshake hash after message 3:
+
+```
+9356996f216bf922334bd07deca6decb
+cd0af75c242911cb22d1c2acb1542c60
+```
+
+The first transport message, I → R with nonce 0, encrypts the §8.3
+GOSSIP_PUSH body (the 256 octets after its length prefix) as the padded
+plaintext. Breakdown: `0110` outer length 272 · 256 octets of ciphertext ·
+16-octet AEAD tag. Complete frame (274 octets):
+
+```
+0110c230a85995f0797437e98182b933
+7d34ea891016fac9735d90e3881f20ef
+3167be9b1e558aaf4dd173d8a2baac24
+322902ec9a5c316ea661cef69f93011d
+c155a9603db73f89c9e7c4df1ae6a03c
+bd3ef1408f8d8b9dc41d0242f38970ef
+3dc4b42598ca2470b0f20607c7c1d4af
+ace579cfad9713b92728516ab17341da
+7b3d937fa7fb25620b3b2f59d5c2f02b
+57c282c06ce5841a0613cf2ba6aadcb0
+14f2a73d10170ede86b04c194b54622f
+a55092b8b4898a8c674102d550d29692
+5214166e8be9975e8f941bb966f03522
+18e5e34d7e2fbf905cff3e66813fc640
+51ff63a2357517de3b4a2edfcdc68ec3
+c2ddd4e30c78f101f3eb6c770f54178c
+fa8dcbe1db19729bcd030830f6fb3b97
+8b23
+```
