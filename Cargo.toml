@@ -8,13 +8,18 @@ edition = "2021"
 license = "AGPL-3.0-only"
 
 [workspace.dependencies]
+chacha20poly1305 = "0.11.0"
+curve25519-dalek = "5.0.0"
 ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
 hex = "0.4.3"
+hmac = "0.13.0"
 minicbor = { version = "2.3.0", features = ["std", "derive"] }
 proptest = "1.11.0"
 sha2 = "0.11.0"
 thiserror = "2.0.19"
 uniffi = "0.32.0"
+zeroize = "1.9.0"
 
 [profile.release]
 lto = true

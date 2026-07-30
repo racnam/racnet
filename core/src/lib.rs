@@ -1,9 +1,10 @@
 //! Racnet core: protocol, sync, storage, crypto, and routing.
 //!
-//! The wire codec lives in [`wire`]; it implements `docs/PROTOCOL.md` v0.1.
+//! The wire codec lives in [`wire`]; it implements `docs/PROTOCOL.md` v0.1.2.
 //! Only [`version`] crosses the FFI boundary for now — the exported surface
 //! will stabilize around session-level operations, not codecs.
 
+pub mod noise;
 pub mod sim;
 pub mod store;
 pub mod sync;
