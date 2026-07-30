@@ -14,11 +14,20 @@ pub struct TransportState {
     send: CipherState,
     recv: CipherState,
     hash: [u8; 32],
+    /// Set on the first decrypt failure. Failure is terminal (§4.4), and
+    /// retrying a boundary message would otherwise rekey twice — Rekey is
+    /// not idempotent — so a failed state refuses all further work.
+    failed: bool,
 }
 
 impl TransportState {
     pub(crate) fn new(send: CipherState, recv: CipherState, hash: [u8; 32]) -> TransportState {
-        TransportState { send, recv, hash }
+        TransportState {
+            send,
+            recv,
+            hash,
+            failed: false,
+        }
     }
 
     fn rekey_if_due(cipher: &mut CipherState) {
@@ -30,15 +39,26 @@ impl TransportState {
 
     /// Encrypt one transport message (empty associated data, §1.1).
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, NoiseError> {
+        if self.failed {
+            return Err(NoiseError::DecryptFailed);
+        }
         Self::rekey_if_due(&mut self.send);
         self.send.encrypt_with_ad(&[], plaintext)
     }
 
     /// Decrypt one transport message. Any error is terminal for the link
-    /// (§4.4); callers close silently.
+    /// (§4.4): callers close silently, and this state refuses everything
+    /// afterwards.
     pub fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>, NoiseError> {
+        if self.failed {
+            return Err(NoiseError::DecryptFailed);
+        }
         Self::rekey_if_due(&mut self.recv);
-        self.recv.decrypt_with_ad(&[], ciphertext)
+        let result = self.recv.decrypt_with_ad(&[], ciphertext);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
     }
 
     /// The handshake hash (channel binding).
@@ -86,6 +106,25 @@ mod tests {
             let ct = b.encrypt(&i.to_be_bytes()).unwrap();
             assert_eq!(a.decrypt(&ct).unwrap(), i.to_be_bytes());
         }
+    }
+
+    #[test]
+    fn a_failed_state_refuses_further_work_without_rekeying_again() {
+        let (mut a, mut b) = linked_pair();
+        // Advance a's send side to the boundary so b's next decrypt is
+        // the rekey-triggering message.
+        for _ in 0..REKEY_INTERVAL {
+            let ct = a.encrypt(b"x").unwrap();
+            b.decrypt(&ct).unwrap();
+        }
+        let mut ct = a.encrypt(b"boundary").unwrap();
+        ct[0] ^= 0xff;
+        assert_eq!(b.decrypt(&ct).unwrap_err(), NoiseError::DecryptFailed);
+        // Retrying — even with the honest bytes — must not run Rekey a
+        // second time; the state is terminally failed.
+        ct[0] ^= 0xff;
+        assert_eq!(b.decrypt(&ct).unwrap_err(), NoiseError::DecryptFailed);
+        assert_eq!(b.encrypt(b"x").unwrap_err(), NoiseError::DecryptFailed);
     }
 
     #[test]

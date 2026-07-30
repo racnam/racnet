@@ -144,6 +144,8 @@ pub struct LinkDriver {
     our_hello_body: Vec<u8>,
     /// The peer's fingerprint, once the handshake authenticated it.
     remote_fingerprint: Option<Fingerprint>,
+    /// The §5 effective version, once the HELLOs crossed.
+    negotiated_version: Option<u64>,
     /// When the link opened, for the §4.3 lifetime cap.
     opened_at_us: u64,
 }
@@ -171,6 +173,7 @@ impl LinkDriver {
             keys: Some((static_keys, ephemeral)),
             our_hello_body: Vec::new(),
             remote_fingerprint: None,
+            negotiated_version: None,
             opened_at_us: now_us,
         }
     }
@@ -193,6 +196,11 @@ impl LinkDriver {
     /// The peer's fingerprint, once established.
     pub fn remote_fingerprint(&self) -> Option<Fingerprint> {
         self.remote_fingerprint
+    }
+
+    /// The §5 effective protocol version, once negotiated.
+    pub fn negotiated_version(&self) -> Option<u64> {
+        self.negotiated_version
     }
 
     /// Why the link closed, if it has.
@@ -348,20 +356,26 @@ impl LinkDriver {
         };
         let hello = match msg {
             Message::Hello(hello) => hello,
-            Message::Error(err) => {
-                return self.close_silently(CloseReason::PeerError(err.code), out)
+            // §7: the only ERROR the cleartext epoch carries is code 2;
+            // anything else is a peer violation, closed silently like
+            // every other cleartext failure. Either way the link is dead.
+            Message::Error(err) if err.code == 2 => {
+                return self.close_silently(CloseReason::VersionIncompatible, out)
             }
             _ => return self.close_silently(CloseReason::HandshakeFailed, out),
         };
 
-        // §5: highest common version, or ERROR 2 — the only wire-visible
-        // cleartext failure.
-        let compatible = hello
+        // §5: the effective version is the highest common one, computed
+        // independently by each side; empty intersection draws ERROR 2 —
+        // the only wire-visible cleartext failure.
+        match hello
             .versions
             .iter()
-            .any(|v| self.config.versions.contains(v));
-        if !compatible {
-            return self.close_with_error(2, CloseReason::VersionIncompatible, out);
+            .filter(|v| self.config.versions.contains(v))
+            .max()
+        {
+            Some(&version) => self.negotiated_version = Some(version),
+            None => return self.close_with_error(2, CloseReason::VersionIncompatible, out),
         }
 
         // Responder answers with its own HELLO now; the prologue needs it.
@@ -400,8 +414,10 @@ impl LinkDriver {
         };
         let handshake = match msg {
             Message::Handshake(handshake) => handshake,
-            Message::Error(err) => {
-                return self.close_silently(CloseReason::PeerError(err.code), out)
+            // As in handle_hello_body: only ERROR 2 is a legitimate
+            // cleartext ERROR (§7).
+            Message::Error(err) if err.code == 2 => {
+                return self.close_silently(CloseReason::VersionIncompatible, out)
             }
             _ => return self.close_silently(CloseReason::HandshakeFailed, out),
         };
