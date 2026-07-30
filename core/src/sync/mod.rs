@@ -7,5 +7,7 @@
 
 pub mod error;
 pub mod negentropy;
+pub mod session;
 
 pub use error::SyncError;
+pub use session::{LinkRole, SyncConfig, SyncEvent, SyncOutput, Syncer};
