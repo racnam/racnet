@@ -4,6 +4,7 @@
 //! Only [`version`] crosses the FFI boundary for now — the exported surface
 //! will stabilize around session-level operations, not codecs.
 
+pub mod sim;
 pub mod wire;
 
 uniffi::setup_scaffolding!();
