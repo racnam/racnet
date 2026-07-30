@@ -31,3 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and sealed per-session snapshots (ADR-0011); session layer driving
   reconciliation and entry transfer over the message codec, tested
   end-to-end on the simulated transport.
+- Spec 0.1.2: session-layer clarifications — empty AEAD associated data,
+  the pre-decryption ciphertext-length gate, rekeying defined by the
+  CipherState nonce, teardown-and-reconnect as the only rehandshake,
+  no handshake pipelining past the HELLO exchange, silent rate-limit
+  refusals — and §8.7 establishment vectors generated with an
+  independent Noise implementation.
+- Milestone 3 session layer in `racnet-core`: in-house Noise XX engine
+  (`Noise_XX_25519_ChaChaPoly_SHA256`) over primitive crates, validated
+  against the cacophony vectors, live snow interop, and the §8.7
+  transcript (ADR-0012); sans-I/O link driver running HELLO/version
+  negotiation, the handshake, and the encrypted transport epoch with
+  counter-based rekeying, lifetime caps, and silent-close failure
+  discipline; per-address handshake rate limiter; end-to-end encrypted
+  sync in simulation; coverage-guided fuzz targets for every parser of
+  untrusted bytes, time-boxed in CI (ADR-0013).

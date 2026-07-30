@@ -2,7 +2,7 @@
 
 An offline-first, infrastructure-free peer-to-peer **sync substrate** for consumer phones. No servers, no towers, no ISP — the mesh is the people carrying it.
 
-**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.1.1), its framing/serialization layer, and the sync core — set reconciliation (Negentropy, validated against the upstream conformance suite) over signed entries in an in-memory store — exist and are tested against a simulated transport. There is no radio code, no persistence, and no app functionality yet.
+**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.1.2), its framing/serialization layer, the sync core — set reconciliation (Negentropy, validated against the upstream conformance suite) over signed entries in an in-memory store — and the Noise session layer (an in-house `Noise_XX_25519_ChaChaPoly_SHA256` engine interop-tested against snow, driving encrypted links with rekeying, rate limiting, and fuzzed parsers) exist and are tested against a simulated transport. There is no radio code, no persistence, and no app functionality yet.
 
 ## What this is (and isn't)
 
