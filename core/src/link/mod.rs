@@ -5,6 +5,8 @@
 //! whatever transport owns the socket. Nothing here does I/O, reads a
 //! clock, or draws entropy.
 
+mod driver;
 mod limiter;
 
+pub use driver::{CloseReason, LinkDriver, LinkDriverConfig, LinkError, LinkEvent, LinkOutput};
 pub use limiter::{HandshakeLimiter, LimiterConfig};

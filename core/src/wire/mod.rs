@@ -16,7 +16,7 @@ pub use entry::Entry;
 pub use error::{ErrorCode, WireError};
 pub use frame::{encode_frame, FrameDecoder};
 pub use msg::{decode_message, encode_message, Message, MsgType};
-pub use pad::{padded_len, BLOCK_SIZES, MAX_PADDED_LEN};
+pub use pad::{is_padded_len, padded_len, BLOCK_SIZES, MAX_PADDED_LEN};
 pub use payload::{
     ErrorMsg, GossipPush, Handshake, Hello, ReconDone, ReconInit, ReconMsg, SortKeyWindow,
 };

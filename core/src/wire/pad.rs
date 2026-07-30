@@ -14,6 +14,13 @@ pub const BLOCK_SIZES: [usize; 4] = [256, 512, 1024, 2048];
 /// Noise message limit.
 pub const MAX_PADDED_LEN: usize = 63_488;
 
+/// Whether `len` is one of the permitted padded lengths of §1.3. The
+/// transport-epoch pre-decryption gate (§1.1): a Noise message body must
+/// be a permitted padded length plus the 16-octet tag.
+pub fn is_padded_len(len: usize) -> bool {
+    padded_len(len) == Some(len)
+}
+
 /// Returns the padded length for an inner message of `unpadded` bytes, or
 /// `None` if it exceeds [`MAX_PADDED_LEN`].
 pub fn padded_len(unpadded: usize) -> Option<usize> {
@@ -54,5 +61,15 @@ mod tests {
     #[test]
     fn rejects_oversized() {
         assert_eq!(padded_len(MAX_PADDED_LEN + 1), None);
+    }
+
+    #[test]
+    fn recognizes_exact_padded_lengths() {
+        for len in [256, 512, 1024, 2048, 4096, 6144, MAX_PADDED_LEN] {
+            assert!(is_padded_len(len), "{len}");
+        }
+        for len in [0, 1, 255, 257, 511, 2049, 4095, MAX_PADDED_LEN + 2048] {
+            assert!(!is_padded_len(len), "{len}");
+        }
     }
 }
