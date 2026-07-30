@@ -53,7 +53,7 @@ the most annoying part of the architecture — before anything depends on it.
 
 ---
 
-## Milestone 1 — Protocol spec v0.1 (next session; not started)
+## Milestone 1 — Protocol spec v0.1 (complete)
 
 **Goal:** `docs/PROTOCOL.md` v0.1 plus a Rust implementation of framing and
 serialization, tested over a simulated transport. Still no radio.
