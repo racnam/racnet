@@ -1,5 +1,8 @@
 # Rust
 target/
+fuzz/artifacts/
+fuzz/corpus/
+fuzz/coverage/
 
 # Android / Gradle
 android/.gradle/

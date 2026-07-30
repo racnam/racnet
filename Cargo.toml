@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["core", "anchor", "uniffi-bindgen"]
+# The fuzz crate needs nightly and libFuzzer; it stays out of the stable
+# workspace builds (ADR-0013).
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"

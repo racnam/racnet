@@ -1,0 +1,41 @@
+[package]
+name = "racnet-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+racnet-core = { path = "../core" }
+
+# Detached from the root workspace (ADR-0013): fuzzing needs nightly and
+# libFuzzer, which must not enter the stable workspace builds.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "frame_decode"
+path = "fuzz_targets/frame_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_driver"
+path = "fuzz_targets/link_driver.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "noise_handshake"
+path = "fuzz_targets/noise_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

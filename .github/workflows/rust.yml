@@ -36,3 +36,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsession-token-perl
       - name: Run upstream conformance suite
         run: ./scripts/negentropy-conformance.sh
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Run time-boxed fuzz targets
+        run: FUZZ_SECONDS=60 ./scripts/fuzz.sh
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
