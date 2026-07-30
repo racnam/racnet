@@ -54,6 +54,17 @@ impl IdSum {
         // A final carry falls off the end: arithmetic is modulo 2^256.
     }
 
+    /// Negates the sum modulo 2^256, so `a + (-b)` subtracts: summaries
+    /// over `[i, j)` can be computed as prefix-sum differences.
+    pub fn negate(&mut self) {
+        for limb in self.limbs.iter_mut() {
+            *limb = !*limb;
+        }
+        let mut one = [0u8; ID_SIZE];
+        one[0] = 1;
+        self.add_id(&one);
+    }
+
     /// The sum as 32 little-endian bytes.
     pub fn to_le_bytes(self) -> [u8; ID_SIZE] {
         let mut out = [0u8; ID_SIZE];

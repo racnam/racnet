@@ -5,6 +5,7 @@
 //! will stabilize around session-level operations, not codecs.
 
 pub mod sim;
+pub mod store;
 pub mod sync;
 pub mod wire;
 
