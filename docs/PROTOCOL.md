@@ -1,6 +1,6 @@
 # Racnet Wire Protocol
 
-**Spec version: 0.1.0 · wire protocol version 1**
+**Spec version: 0.1.1 · wire protocol version 1**
 
 This document is the source of truth for the Racnet wire protocol. Where any
 implementation disagrees with this document, the implementation is wrong.
@@ -333,13 +333,27 @@ milliseconds since the Unix epoch at entry creation, as claimed by the
 author. It orders the set; nothing at this layer treats it as a verified
 clock.
 
+The value `2^64 − 1` is reserved and MUST NOT appear as an entry's
+`sort-key`: it is the infinity timestamp sentinel inside Negentropy
+messages and the unbounded-`until` sentinel in the session window (§6.2),
+and an entry carrying it could fall outside every reconciled range.
+Receivers MUST reject such an entry as a protocol violation (§7).
+
 ### 6.2 Session flow
 
 A reconciliation session is opened by RECON_INIT, which carries a session
 id `sid` and the sort-key window `[since, until)` the session covers
-(`until` = `2^64 − 1` for "everything from `since`"). The `sid` MUST be
-unique among the sender's open sessions on the link; either peer may open
+(`until` = `2^64 − 1` for "everything from `since`"). Either peer may open
 sessions, and multiple sessions may be open concurrently.
+
+Session ids carry direction: the peer that initiated the transport
+connection MUST use even `sid` values for the sessions it opens, and the
+accepting peer MUST use odd values. Within its parity class a `sid` MUST be
+unique among the opener's open sessions on the link. A RECON_INIT whose
+`sid` has the wrong parity for its sender is a protocol violation (§7).
+Without this rule, both peers opening a session with the same `sid` would
+make subsequent RECON_MSG traffic ambiguous, since sessions are otherwise
+identified only by `sid`.
 
 Rounds proceed as RECON_MSG in alternating directions, each carrying one
 Negentropy message. Either side ends the session with RECON_DONE — sent
