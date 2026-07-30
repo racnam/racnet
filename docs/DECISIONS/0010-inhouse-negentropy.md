@@ -23,12 +23,15 @@ harness against our implementation (rust↔rust interop and delta tests,
 rust↔js interop, protocol-version negotiation, time-boxed fuzzing) via
 `core/examples/negentropy_harness.rs`, locally and in CI.
 
-One deliberate divergence from the upstream reference: the reference
-rejects frame-size limits below 4096 bytes; our engine accepts limits down
-to 512 so sessions can size reconciliation messages for small padded
-blocks (ADR-0005). The limit is local configuration, not wire protocol —
-either peer may cap its own outgoing frames at any value the other end
-must already handle.
+The engine keeps the upstream 4096-byte frame-size-limit floor. A lower
+floor was considered so sessions could target small padded blocks
+(ADR-0005), but it breaks termination, which is why upstream floors where
+it does: progress requires that the budget remaining at the start of a
+message always fits one full range split (an id list of 31 ids runs to
+~1 KB) — under a smaller budget that range is discarded every round and
+reconciliation livelocks. Property tests demonstrated exactly that.
+Reconciliation messages therefore pad to 4096-byte frames (a valid
+ADR-0005 padded length) rather than 2048.
 
 ## Consequences
 

@@ -52,9 +52,20 @@ impl Bound {
         Bound::from_ts(TS_INFINITY)
     }
 
+    /// A bound exactly at an item: full-width id prefix.
+    pub fn at_item(ts: u64, id: &[u8; ID_SIZE]) -> Bound {
+        Bound::new(ts, id)
+    }
+
     /// The stored id prefix bytes.
     pub fn prefix(&self) -> &[u8] {
         &self.prefix[..usize::from(self.prefix_len)]
+    }
+
+    /// The id prefix zero-padded to full width — the id an item would need
+    /// to compare equal to this bound at its timestamp.
+    pub fn padded_id(&self) -> &[u8; ID_SIZE] {
+        &self.prefix
     }
 
     /// Whether the item `(ts, id)` sorts strictly before this bound.
