@@ -23,3 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configurable latency, loss, partition, and MTU.
 - Threat-model posture (ADR-0009): adversarial-tier wire discipline, modest
   security claims until an external audit.
+- Spec 0.1.1: session ids carry direction via parity, and the maximal
+  sort key is reserved.
+- Milestone 2 sync core in `racnet-core`: in-house Negentropy V1 engine
+  validated against the pinned upstream conformance suite in CI
+  (ADR-0010); entry store with a weight-balanced order-statistics index
+  and sealed per-session snapshots (ADR-0011); session layer driving
+  reconciliation and entry transfer over the message codec, tested
+  end-to-end on the simulated transport.

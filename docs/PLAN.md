@@ -18,7 +18,7 @@ sort-key semantics (ADR-0006), Negentropy carried opaquely (ADR-0007).
 
 ---
 
-## Milestone 2 — Sync core
+## Milestone 2 — Sync core (complete)
 
 **Goal:** working set reconciliation between two in-process peers: an
 in-house implementation of the Negentropy V1 wire protocol, an
