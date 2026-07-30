@@ -1,7 +1,10 @@
 //! Racnet core: protocol, sync, storage, crypto, and routing.
 //!
-//! Milestone 0 exposes only [`version`], proving the UniFFI toolchain across
-//! iOS, Android, and the Linux anchor before any protocol work lands.
+//! The wire codec lives in [`wire`]; it implements `docs/PROTOCOL.md` v0.1.
+//! Only [`version`] crosses the FFI boundary for now — the exported surface
+//! will stabilize around session-level operations, not codecs.
+
+pub mod wire;
 
 uniffi::setup_scaffolding!();
 
