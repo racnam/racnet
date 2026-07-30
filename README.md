@@ -2,7 +2,7 @@
 
 An offline-first, infrastructure-free peer-to-peer **sync substrate** for consumer phones. No servers, no towers, no ISP — the mesh is the people carrying it.
 
-**Status: pre-alpha. Nothing here is usable yet.** The current milestone is a toolchain proof; there is no protocol implementation, no radio code, and no app functionality.
+**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.1) and its framing/serialization layer exist, tested against a simulated transport; there is no sync engine, no radio code, and no app functionality yet.
 
 ## What this is (and isn't)
 

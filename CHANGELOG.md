@@ -21,3 +21,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixed-block padding, signed entry encoding and identity, conformance-vector
   and round-trip property tests, and a deterministic simulated transport with
   configurable latency, loss, partition, and MTU.
+- Threat-model posture (ADR-0009): adversarial-tier wire discipline, modest
+  security claims until an external audit.
