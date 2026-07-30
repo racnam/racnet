@@ -133,7 +133,12 @@ Senders MUST emit deterministic encodings. Receivers MAY reject
 non-deterministic encodings, and MUST ignore unknown map keys in the
 map-shaped payloads below — new optional keys are the additive extension
 mechanism that needs no version bump. The `entry` array (§3.5) is
-positional and fixed: it is never extended within a wire version.
+positional and fixed: it is never extended within a wire version, and
+receivers MUST reject an `entry` whose array length is not exactly 5 —
+tolerated extra elements would be a covert channel, exactly as over-padding
+would be (§1.3). Occurrence constraints in the CDDL are normative:
+a payload violating them (an empty `versions` or `entries` list) MUST be
+rejected as a protocol violation.
 
 The schemas, in CDDL (RFC 8610):
 
