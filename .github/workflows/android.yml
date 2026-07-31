@@ -30,9 +30,9 @@ jobs:
         run: cargo install cargo-ndk --locked
       - name: Build core and generate bindings
         run: bindings/kotlin/build-android.sh
-      - name: Build APK
+      - name: Lint, test, and build APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon lint testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: racnet-debug-apk
