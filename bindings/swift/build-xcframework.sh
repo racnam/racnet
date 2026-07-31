@@ -14,8 +14,9 @@ cd "$REPO_ROOT"
 rm -rf "$OUT"
 mkdir -p "$OUT/headers" "$SWIFT_SRC"
 
+# --no-default-features leaves the simulator out of shipped artifacts.
 for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
-    cargo build --release -p racnet-core --target "$target"
+    cargo build --release -p racnet-core --target "$target" --no-default-features
 done
 
 cargo run --release -p uniffi-bindgen -- generate \
