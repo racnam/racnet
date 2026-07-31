@@ -4,6 +4,8 @@
 //! partition with a full re-handshake, and cross the rekey boundary —
 //! deterministically per seed.
 
+#![cfg(feature = "sim")]
+
 use ed25519_dalek::SigningKey;
 
 use racnet_core::link::{CloseReason, LinkDriver, LinkDriverConfig, LinkEvent};

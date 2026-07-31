@@ -1,6 +1,8 @@
 //! Integration tests: the wire codec over the simulated transport, and the
 //! simulation's determinism guarantees.
 
+#![cfg(feature = "sim")]
+
 use racnet_core::sim::{Delivery, LinkConfig, LinkKind, SimNet};
 use racnet_core::wire::{encode_frame, ErrorMsg, FrameDecoder, Hello, Message};
 

@@ -2,6 +2,8 @@
 //! transfer entries through the full wire codec on a segmented stream
 //! link, across a partition, deterministically per seed.
 
+#![cfg(feature = "sim")]
+
 use ed25519_dalek::SigningKey;
 
 use racnet_core::sim::{Delivery, LinkConfig, LinkKind, NodeId, SimNet};
