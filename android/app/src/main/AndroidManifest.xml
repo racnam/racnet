@@ -11,7 +11,11 @@
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
     <!-- BLE scanning requires location on API 29-30 only; on 31+ we
-         assert scans are never used to derive location. -->
+         assert scans are never used to derive location. Coarse rides
+         along because fine may never be requested without it. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="30" />
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
