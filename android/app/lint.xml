@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- Generated UniFFI bindings (gitignored, regenerated every build)
+         are not this module's code: their Cleaner use is behind a
+         runtime SDK check lint cannot see. Lint stays strict for
+         everything under org/racnet. -->
+    <issue id="all">
+        <ignore path="src/main/java/uniffi" />
+    </issue>
+</lint>

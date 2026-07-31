@@ -68,9 +68,10 @@ binary.
 ## Consequences
 
 - The whole FFI is one lock. That is deliberate: per-call work is
-  microseconds of ChaCha20 on ≤64 KiB and the radio delivers ~200 Kbps;
-  contention is not the bottleneck, and a single lock cannot deadlock
-  against itself re-entering through a callback.
+  microseconds of ChaCha20 on ≤64 KiB frames, orders of magnitude
+  faster than any BLE-class radio can deliver bytes, so contention is
+  not the bottleneck — and a single lock cannot deadlock against itself
+  re-entering through a callback.
 - `core/tests/api_e2e.rs` drives two `Node`s exactly as two shims would,
   so facade behavior (limiter wiring, close/reconnect lifecycles, event
   mapping) is proven host-side before a phone is involved.

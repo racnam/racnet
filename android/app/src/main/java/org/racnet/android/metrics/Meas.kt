@@ -44,7 +44,6 @@ class LinkMetrics(val address: String, val initiator: Boolean) {
     var psmReadAtMs: Long = 0
     var l2capOpenAtMs: Long = 0
     var establishedAtMs: Long = 0
-    var syncOpenedAtMs: Long = 0
     var syncDoneAtMs: Long = 0
 
     @Volatile var bytesIn: Long = 0

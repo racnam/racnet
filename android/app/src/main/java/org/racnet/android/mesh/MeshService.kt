@@ -77,8 +77,6 @@ class MeshService : LifecycleService() {
                     is Event.Established ->
                         registry.onEstablished(event.linkId, event.remoteFingerprint)
                     is Event.Reconciled -> {
-                        registry.connection(event.linkId)?.metrics?.syncOpenedAtMs =
-                            SystemClock.elapsedRealtime()
                         Meas.log(
                             "reconciled",
                             "link" to event.linkId,

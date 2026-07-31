@@ -20,8 +20,6 @@ import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.racnet.android.mesh.ConnectionRegistry
@@ -30,7 +28,6 @@ import org.racnet.android.metrics.LinkMetrics
 import org.racnet.android.metrics.Meas
 import org.racnet.android.node.NodeRuntime
 import org.racnet.android.policy.ConnectionPolicy
-import uniffi.racnet_core.Event
 
 /**
  * The central role of §9.1: one long-lived scan filtered on the service
@@ -134,22 +131,12 @@ class BleCentral(
             "scan_to_psm_ms" to (metrics.psmReadAtMs - metrics.scanFoundAtMs),
         )
 
-        val connection = withTimeoutOrNull(L2CAP_CONNECT_TIMEOUT_MS) {
-            openL2cap(scope, device, psm, metrics)
-        }
+        val connection = openL2cap(scope, device, psm, metrics)
         if (connection == null) {
             policy.failed(address, SystemClock.elapsedRealtime())
             return
         }
         policy.established(address)
-        // Return the address to the policy when the link dies, whichever
-        // side notices; the Closed event always fires exactly once.
-        scope.launch {
-            runtime.events
-                .filterIsInstance<Event.Closed>()
-                .first { it.linkId == connection.linkId }
-            scope.launch(policyDispatcher) { policy.closed(address) }
-        }
     }
 
     private suspend fun openL2cap(
@@ -158,12 +145,24 @@ class BleCentral(
         psm: Int,
         metrics: LinkMetrics,
     ): LinkConnection? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val address = device.address
         val socket = try {
-            device.createInsecureL2capChannel(psm).also { it.connect() }
+            device.createInsecureL2capChannel(psm)
         } catch (e: IOException) {
-            Log.i(TAG, "L2CAP connect to ${device.address} failed")
             return@withContext null
         } catch (e: SecurityException) {
+            return@withContext null
+        }
+        try {
+            // Blocking; bounded by the stack's own L2CAP connect timeout.
+            socket.connect()
+        } catch (e: IOException) {
+            Log.i(TAG, "L2CAP connect to $address failed")
+            try {
+                socket.close()
+            } catch (closeError: IOException) {
+                // Already gone.
+            }
             return@withContext null
         }
         metrics.l2capOpenAtMs = SystemClock.elapsedRealtime()
@@ -174,6 +173,12 @@ class BleCentral(
             parentScope = scope,
             initiator = true,
             metrics = metrics,
+            // Return the address to the policy however the link dies —
+            // the callback fires exactly once, from whichever side
+            // notices first, with no subscription race.
+            onTeardown = {
+                scope.launch(policyDispatcher) { policy.closed(address) }
+            },
         )
         if (connection.start()) connection else null
     }
@@ -242,6 +247,5 @@ class BleCentral(
     private companion object {
         const val TAG = "RacnetCentral"
         const val GATT_TIMEOUT_MS = 10_000L
-        const val L2CAP_CONNECT_TIMEOUT_MS = 20_000L
     }
 }

@@ -28,6 +28,10 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        // Full results in CI stdout, not just the first failure.
+        textReport = true
+    }
 }
 
 // Dependency justifications: ADR-0016.

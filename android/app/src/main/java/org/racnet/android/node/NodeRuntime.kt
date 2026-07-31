@@ -3,7 +3,9 @@ package org.racnet.android.node
 import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,7 +58,17 @@ class NodeRuntime(identity: Identity) {
     private val transports = ConcurrentHashMap<ULong, LinkTransport>()
     private val establishedLinks = ConcurrentHashMap.newKeySet<ULong>()
 
-    private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 256)
+    // Application-lifetime scope: transport-close reporting must survive
+    // the service scope being torn down, or the core keeps ghost links
+    // until their 24-hour cap.
+    private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Correctness-bearing state (transports, establishedLinks, the core
+    // itself) is updated synchronously in dispatchEvents; this flow only
+    // feeds the UI, the registry's peer view, and the measurement log,
+    // where dropping under a persistent 1024-event backlog is the least
+    // bad failure mode.
+    private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 1024)
 
     /** Every core event, in order, for UI and metrics. */
     val events: SharedFlow<Event> = _events
@@ -105,6 +117,15 @@ class NodeRuntime(identity: Identity) {
         dispatchEvents(node.onTransportClosed(linkId, nowUs()))
     }
 
+    /**
+     * Fire-and-forget transport-close reporting for teardown paths that
+     * cannot suspend (socket loops dying, service shutdown). Runs on the
+     * runtime's own scope so a dying caller scope cannot cancel it.
+     */
+    fun onTransportClosedAsync(linkId: ULong) {
+        runtimeScope.launch { onTransportClosed(linkId) }
+    }
+
     /** Signs and stores a local entry, then pushes it to every peer. */
     suspend fun createEntry(kind: ULong, payload: ByteArray): EntryView = lock.withLock {
         val view = node.createEntry(kind, payload, System.currentTimeMillis().toULong())
@@ -116,11 +137,6 @@ class NodeRuntime(identity: Identity) {
     /** The stored entries, newest window first left to the caller. */
     suspend fun entries(): List<EntryView> = lock.withLock {
         node.entries(SyncWindow(sinceMs = 0uL, untilMs = ULong.MAX_VALUE))
-    }
-
-    /** Established-link fingerprint, if the link is live and established. */
-    suspend fun remoteFingerprint(linkId: ULong): ByteArray? = lock.withLock {
-        node.linkStatus(linkId)?.remoteFingerprint
     }
 
     /**

@@ -48,8 +48,7 @@ protocol has no session resumption to lose and entries re-sync.
 Dependency justifications (Android app; the mesh core gains none):
 
 - `kotlinx-coroutines-android`: structured concurrency for socket loops
-  and the single-parallelism dispatcher serializing FFI calls; the
-  de facto platform standard.
+  and the mutex serializing FFI calls; the de facto platform standard.
 - `androidx.lifecycle:lifecycle-service`: `LifecycleService`, so
   coroutine scopes die with the service instead of leaking read loops.
 - `androidx.lifecycle:lifecycle-runtime-compose`: lifecycle-aware

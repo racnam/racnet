@@ -31,6 +31,8 @@ class LinkConnection(
     private val parentScope: CoroutineScope,
     val initiator: Boolean,
     val metrics: LinkMetrics,
+    /** Invoked exactly once when the connection tears down, however. */
+    private val onTeardown: (() -> Unit)? = null,
 ) : LinkTransport {
 
     val address: String = socket.remoteDevice?.address ?: "00:00:00:00:00:00"
@@ -46,22 +48,30 @@ class LinkConnection(
             Dispatchers.IO,
     )
     private val writes = Channel<ByteArray>(Channel.UNLIMITED)
+    private val tornDown = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * Registers the link with the core and starts the pump loops.
-     * Returns false if the core refused it (rate limited): the socket is
+     * Returns false if the core refused it (rate limited) or the remote
+     * address is unusable as the §9.1.6 limiter key: the socket is
      * closed silently and nothing was started.
      */
     suspend fun start(): Boolean {
         val open = if (initiator) {
             runtime.connect(this)
         } else {
-            val addrBytes = BleConstants.addressToBytes(address) ?: ByteArray(6)
+            val addrBytes = BleConstants.addressToBytes(address)
+            if (addrBytes == null) {
+                closeSocketQuietly()
+                onTeardown?.invoke()
+                return false
+            }
             runtime.accept(addrBytes, this)
         }
         if (open == null) {
             // §4.5: refused handshakes are dropped silently.
             closeSocketQuietly()
+            onTeardown?.invoke()
             return false
         }
         linkId = open.linkId
@@ -102,12 +112,16 @@ class LinkConnection(
      * the core itself closed the link it must not be re-entered.
      */
     fun shutdown(reportToCore: Boolean = true) {
+        if (!tornDown.compareAndSet(false, true)) return
         writes.close()
         closeSocketQuietly()
         registry.remove(this)
         if (reportToCore) {
-            parentScope.launch { runtime.onTransportClosed(linkId) }
+            // On the runtime's own scope: teardown must complete even
+            // when this connection's (service) scope is dying.
+            runtime.onTransportClosedAsync(linkId)
         }
+        onTeardown?.invoke()
         scope.cancel()
     }
 
