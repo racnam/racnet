@@ -8,6 +8,12 @@ license.workspace = true
 name = "racnet_core"
 crate-type = ["lib", "staticlib", "cdylib"]
 
+[features]
+# The deterministic network simulator is a test harness, not app code:
+# shipped mobile artifacts build with --no-default-features.
+default = ["sim"]
+sim = []
+
 [dependencies]
 chacha20poly1305.workspace = true
 curve25519-dalek.workspace = true

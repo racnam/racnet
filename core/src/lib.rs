@@ -6,6 +6,7 @@
 
 pub mod link;
 pub mod noise;
+#[cfg(feature = "sim")]
 pub mod sim;
 pub mod store;
 pub mod sync;
