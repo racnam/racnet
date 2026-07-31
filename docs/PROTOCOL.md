@@ -1,6 +1,6 @@
 # Racnet Wire Protocol
 
-**Spec version: 0.1.2 · wire protocol version 1**
+**Spec version: 0.2.0 · wire protocol version 1**
 
 This document is the source of truth for the Racnet wire protocol. Where any
 implementation disagrees with this document, the implementation is wrong.
@@ -18,8 +18,11 @@ Non-obvious choices in this document are recorded as numbered ADRs in
 ## 1. Framing
 
 Protocol data is exchanged over a reliable, ordered byte stream (in the first
-deployments, a BLE L2CAP connection-oriented channel; the transport below
-this spec is out of scope). There are two layers: the **outer frame**, which
+deployments, a BLE L2CAP connection-oriented channel). Framing is
+transport-independent; how a stream is discovered and established on a
+particular transport is defined by the transport bindings of §9, which are
+normative for implementations claiming that transport. There are two
+layers: the **outer frame**, which
 delimits messages on the stream, and the **inner message**, which carries a
 typed payload and the padding that blunts traffic analysis.
 
@@ -754,3 +757,97 @@ c2ddd4e30c78f101f3eb6c770f54178c
 fa8dcbe1db19729bcd030830f6fb3b97
 8b23
 ```
+
+## 9. Transport bindings
+
+A transport binding defines how a peer discovers others and establishes
+the reliable, ordered byte stream that carries §1 frames on a particular
+transport. Bindings are normative for implementations claiming the
+corresponding transport registry value (§3.2); nothing in a binding
+changes frame bytes, so bindings are additive and never bump the wire
+protocol version.
+
+### 9.1 BLE L2CAP CoC (transport value 1)
+
+#### 9.1.1 Roles
+
+A node claiming this transport SHOULD operate both BLE roles
+simultaneously: peripheral (advertising and listening for incoming
+channels) and central (scanning and opening channels). The device that
+opens the L2CAP channel is the link's initiator with every consequence of
+§4: Noise initiator, first HELLO sender, even reconciliation session ids.
+
+#### 9.1.2 Discovery
+
+Peers advertise the fixed 128-bit service UUID
+
+```
+eb254e0b-8c00-44ef-855d-603aa62f6597
+```
+
+as a service-UUID field in a connectable advertisement. The advertisement
+SHOULD carry nothing else: no device name, no TX power level, no service
+data. Centrals discover peers by scanning with a filter on this UUID.
+
+This fixed UUID is a deliberate, scoped exception to the rule that keeps
+identifying constants off the air (§1.1, ADR-0009): discovery requires a
+stable beacon, and with no shared secret between strangers there is
+nothing to rotate a private beacon against. The exception covers
+advertising data only — frame bytes remain free of constants. See
+ADR-0015, which also records the future path (epoch-rotated UUIDs derived
+from community keys) as a versioned change to this binding.
+
+#### 9.1.3 PSM publication
+
+The L2CAP protocol/service multiplexer (PSM) is dynamically assigned by
+the platform, so it is published, not fixed. The peripheral exposes a GATT
+primary service under the service UUID above containing one read-only
+characteristic
+
+```
+d52f8c73-c151-4132-b124-d6af600667f5
+```
+
+whose value is the PSM as a 2-octet **little-endian** unsigned integer
+(GATT convention; deliberately unlike the big-endian rule of this spec's
+frames, which starts at the frame boundary). A central reads the PSM over
+a GATT connection and SHOULD close that GATT connection before opening
+the L2CAP channel.
+
+#### 9.1.4 Channel
+
+The stream is an L2CAP connection-oriented channel opened to the
+published PSM, using the platform's "insecure" variant (Security Mode 1,
+Level 1): no BLE link-layer pairing, bonding, or encryption is requested.
+All authentication and confidentiality come from the Noise session (§4);
+BLE pairing would add user-visible ceremony and a second, weaker trust
+root. The channel carries §1 frames directly, with no additional wrapping;
+L2CAP SDU boundaries carry no meaning, exactly as §1.1's arbitrary
+segmentation rule already requires.
+
+#### 9.1.5 Duplicate links
+
+Two dual-role peers that discover each other concurrently may open two
+channels — each peer central on one, peripheral on the other — yielding
+two links between the same pair. HELLO carries no identifier (§3.2), so
+duplicates are detectable only after both handshakes complete.
+
+- Before connecting: a central SHOULD delay its connection to a newly
+  discovered address by a uniform random 0–2 s, and SHOULD NOT open a
+  channel to an address it already has an in-flight or open connection
+  to. This is best-effort — address rotation (§9.1.6) limits it.
+- After establishment: when a node holds two established links to the
+  same remote static-key fingerprint, it SHOULD keep the link whose
+  initiator is the peer with the lexicographically smaller fingerprint
+  (bytewise comparison of the two 32-octet fingerprints) and close the
+  other silently. Both ends evaluate the same rule on the same inputs
+  and therefore close the same link. If the fingerprints are equal, a
+  node is talking to itself and SHOULD close both links.
+
+#### 9.1.6 Rate-limiting address
+
+The remote transport address of §4.5 is the remote BLE device address as
+observed (6 octets). BLE privacy features rotate resolvable private
+addresses, so per-address rate limiting degrades against an adversary who
+rotates addresses; the cap on concurrent half-open handshakes (§4.5) is
+the backstop and MUST NOT be keyed by address.
