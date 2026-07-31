@@ -43,9 +43,10 @@ Kotlin side stores the seeds encrypted at rest (ADR-0016); the
 zeroization claim stays as modest as ADR-0012's — the foreign copy is
 beyond Rust's reach.
 
-Per-link ephemerals are generated inside `connect`/`accept`, keeping
-`Keypair::generate()` the crate's single entropy path and leaving no
-ephemeral-injection hook in the production API. Time stays injected as
+Per-link ephemerals are generated inside `connect`/`accept`, leaving no
+ephemeral-injection hook in the production API; the crate's entropy use
+stays confined to `Keypair::generate()` plus `generate_identity()`'s two
+seed draws, all in explicitly named constructors. Time stays injected as
 u64 microseconds; the node clamps it monotonically, since per-connection
 threads can read a clock and then lose the race to the mutex. `tick` and
 `on_transport_closed` return events only — every close today is silent by

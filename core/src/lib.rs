@@ -1,9 +1,10 @@
 //! Racnet core: protocol, sync, storage, crypto, and routing.
 //!
-//! The wire codec lives in [`wire`]; it implements `docs/PROTOCOL.md` v0.1.2.
-//! Only [`version`] crosses the FFI boundary for now — the exported surface
-//! will stabilize around session-level operations, not codecs.
+//! The wire codec lives in [`wire`]; it implements `docs/PROTOCOL.md` v0.2.0.
+//! The FFI boundary is [`api`]: session-level operations behind a single
+//! [`api::Node`] facade (ADR-0014), never codecs or key types.
 
+pub mod api;
 pub mod link;
 pub mod noise;
 #[cfg(feature = "sim")]
