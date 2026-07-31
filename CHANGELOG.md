@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no handshake pipelining past the HELLO exchange, silent rate-limit
   refusals — and §8.7 establishment vectors generated with an
   independent Noise implementation.
+- Spec 0.2.0: §9 transport bindings — the BLE L2CAP CoC binding with the
+  advertised service UUID, GATT-published PSM, insecure-channel rule,
+  duplicate-link tiebreak, and the BLE address as the rate-limiting key.
+- Milestone 4 Android BLE transport: the first real FFI surface — a
+  `Node` facade over store, limiter, and links, driven by link ids with
+  return-value events (ADR-0014) — and the first radio: dual-role BLE
+  with L2CAP CoC links, GATT PSM discovery, a `connectedDevice`
+  foreground service, Keystore-wrapped identity, permission and
+  battery-optimization onboarding, a diagnostics screen, and stable
+  `RacnetMeas` measurement records with procedures in
+  `docs/MEASUREMENT-PROCEDURES.md` (ADRs 0015–0016). The simulator is
+  feature-gated out of shipped mobile artifacts.
 - Milestone 3 session layer in `racnet-core`: in-house Noise XX engine
   (`Noise_XX_25519_ChaChaPoly_SHA256`) over primitive crates, validated
   against the cacophony vectors, live snow interop, and the §8.7

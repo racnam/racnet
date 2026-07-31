@@ -2,7 +2,7 @@
 
 An offline-first, infrastructure-free peer-to-peer **sync substrate** for consumer phones. No servers, no towers, no ISP — the mesh is the people carrying it.
 
-**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.1.2), its framing/serialization layer, the sync core — set reconciliation (Negentropy, validated against the upstream conformance suite) over signed entries in an in-memory store — and the Noise session layer (an in-house `Noise_XX_25519_ChaChaPoly_SHA256` engine interop-tested against snow, driving encrypted links with rekeying, rate limiting, and fuzzed parsers) exist and are tested against a simulated transport. There is no radio code, no persistence, and no app functionality yet.
+**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.2.0), its framing/serialization layer, the sync core — set reconciliation (Negentropy, validated against the upstream conformance suite) over signed entries in an in-memory store — and the Noise session layer (an in-house `Noise_XX_25519_ChaChaPoly_SHA256` engine interop-tested against snow, driving encrypted links with rekeying, rate limiting, and fuzzed parsers) are tested against a simulated transport. The first radio exists: Android devices sync over BLE L2CAP channels behind a foreground service, per the spec's §9.1 transport binding. Throughput and range are unmeasured until `docs/MEASUREMENTS.md` says otherwise, entries do not persist across restarts, iOS has no transport yet, and there is no app functionality beyond diagnostics.
 
 ## What this is (and isn't)
 
