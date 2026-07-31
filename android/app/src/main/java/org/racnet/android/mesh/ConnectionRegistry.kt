@@ -46,6 +46,9 @@ class ConnectionRegistry(private val localFingerprint: ByteArray) {
 
     fun connection(linkId: ULong): LinkConnection? = byLinkId[linkId]
 
+    /** Every live connection, for the diagnostics screen. */
+    fun connectionsSnapshot(): List<LinkConnection> = byLinkId.values.toList()
+
     /**
      * A link established: record it, mark its metrics, and apply the
      * duplicate rule — victims are shut down, which silently closes them

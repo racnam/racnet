@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import org.racnet.android.identity.IdentityStore
+import org.racnet.android.mesh.ConnectionRegistry
 import org.racnet.android.node.NodeRuntime
 
 /**
@@ -19,10 +20,14 @@ class RacnetApplication : Application() {
     lateinit var nodeRuntime: NodeRuntime
         private set
 
+    lateinit var connectionRegistry: ConnectionRegistry
+        private set
+
     override fun onCreate() {
         super.onCreate()
         identityStore = IdentityStore(this)
         nodeRuntime = NodeRuntime(identityStore.loadOrCreate())
+        connectionRegistry = ConnectionRegistry(nodeRuntime.fingerprint)
 
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
