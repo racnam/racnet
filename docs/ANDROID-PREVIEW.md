@@ -17,7 +17,7 @@ adb -s <SERIAL> install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 For this handoff, a copy is also placed at `racnet-0.2.0-preview.apk` in the
 repository root (ignored by git). Its SHA-256 is
-`48b0e193bb720517017b1fa608d277df528fd8055968c1e1eeaeb70e13022305`.
+`9fbb24f691816c7bc8bd1b7bc9404d1310c4326a73ec16d42f0842647db4c1ab`.
 The APK signature verifies. Keep the debug signing key if you want to
 install future builds over this one without clearing data. An APK signed by
 a different key cannot update it in place.
@@ -59,3 +59,17 @@ eviction; clearing app data is destructive and also replaces the identity.
 Only the identity envelope has separate at-rest encryption. There has been no
 external security review. iOS, chunked files, fast radios, and the other
 roadmap clients are outside this preview's scope.
+
+## Testing automation follow-up, 2026-09-19
+
+The local APK above includes the permission/backup lint cleanup. Android build,
+33 JVM tests, and lint passed again (zero errors, six advisory warnings).
+Twelve Python tests cover the evidence parser, incomplete records, result
+classification, and pair-test orchestration. The ADB runner passed a fresh
+install, offline post, and restart on an API 35 emulator; passive capture was
+correctly recorded as unevaluated. These are not physical BLE test results.
+
+The preview commit's Android and iOS remote workflows passed. A Rust 1.98
+Clippy rule flagged two older chunk conversions; they were updated without a
+wire/algorithm change. The follow-up adds API 29/35 offline emulator CI gates.
+See [phone-testing delegation](TESTING-WITH-PHONES.md) for the next session.

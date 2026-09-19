@@ -1,5 +1,8 @@
 # Device testing walkthrough
 
+For assisted operation, scripted tests, and automatic evidence bundles, see
+[Testing with phones](TESTING-WITH-PHONES.md).
+
 The maintainer-run validation for milestone 4 and the field workflow for
 every milestone after it: getting builds onto phones, the first-sync
 smoke test, log capture, and where results go. Measurement *procedures*

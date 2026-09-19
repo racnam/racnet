@@ -35,8 +35,8 @@ impl IdSum {
     /// Adds one id, interpreted as a 32-byte little-endian integer.
     pub fn add_id(&mut self, id: &[u8; ID_SIZE]) {
         let mut other = [0u64; 4];
-        for (limb, chunk) in other.iter_mut().zip(id.chunks_exact(8)) {
-            *limb = u64::from_le_bytes(chunk.try_into().expect("8-byte chunk"));
+        for (limb, chunk) in other.iter_mut().zip(id.as_chunks::<8>().0.iter()) {
+            *limb = u64::from_le_bytes(*chunk);
         }
         self.add_limbs(&other);
     }
@@ -71,7 +71,7 @@ impl IdSum {
     /// The sum as 32 little-endian bytes.
     pub fn to_le_bytes(self) -> [u8; ID_SIZE] {
         let mut out = [0u8; ID_SIZE];
-        for (chunk, limb) in out.chunks_exact_mut(8).zip(self.limbs.iter()) {
+        for (chunk, limb) in out.as_chunks_mut::<8>().0.iter_mut().zip(self.limbs.iter()) {
             chunk.copy_from_slice(&limb.to_le_bytes());
         }
         out

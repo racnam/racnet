@@ -28,3 +28,7 @@ bindings/swift/out/
 *.swp
 .idea/
 .vscode/
+
+# Private device evidence and Python bytecode
+test-runs/
+__pycache__/

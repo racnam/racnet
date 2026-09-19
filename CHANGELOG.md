@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- ADB device-test runner with explicit device selection, exact-entry sync and
+  restart checks, and local reports/logs/screenshots; no automatic promotion
+  of captures to hardware measurements.
+- API 29/35 emulator CI smoke checks and hardware-testing delegation guide.
+- Android preview threat model and remaining release/security decisions.
+
 - Android public nearby board with offline composition, author labels, UTF-8
   validation, persistent messages, and visible startup/radio/storage failures.
 - Durable core journal with signature verification on restart, exclusive

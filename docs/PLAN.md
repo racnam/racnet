@@ -37,3 +37,13 @@ restart recovery and signed-entry sync; an installable APK builds. Two-phone
 BLE discovery, bidirectional transfer, process-restart persistence on actual
 phones, Bluetooth toggling, and screen-off behavior remain the maintainer's
 hardware acceptance gate. Record actual results in MEASUREMENTS.md later.
+
+## Work while physical testing is deferred
+
+- Commit/push the preview and resolve failures reported by remote CI.
+- Add an ADB runner for explicit-device preparation, offline checks,
+  two-phone sync/reconnect checks, and private evidence capture.
+- Run offline install/post/restart checks in CI on API 29 and 35 emulators.
+- Document the trust boundaries and current threats without claiming an audit.
+- Keep physical BLE/background/range acceptance pending; later use captured
+  evidence and maintainer-supplied physical context to record real results.

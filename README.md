@@ -89,9 +89,12 @@ bindings/swift/build-xcframework.sh && cd ios && xcodegen && xcodebuild -scheme 
 - **iOS background sync will never be reliable.** iOS grants ~10-second wake windows for BLE events from known peers; the design works within that, but expectation-setting is part of the UX, not a bug to fix.
 - **BLE is slow.** ~200 Kbps usable single-hop is the planning estimate; multi-hop divides it. Large files move at walking pace across a mesh, by design.
 - **iOS↔Android bulk transfer has no fast path.** AWDL and WiFi Aware are mutually incompatible; cross-platform hops fall back to BLE.
-- **Nothing has been security-reviewed.** No external audit has been performed. Do not rely on this project for safety-critical communication, and treat every security property as unverified until `docs/THREAT-MODEL.md` exists and an external review is completed.
+- **Nothing has been security-reviewed.** No external audit has been performed. Do not rely on this project for safety-critical communication, and treat every security property as unverified until an external review is completed. The current [threat model](docs/THREAT-MODEL.md) documents controls and unresolved risks.
 - **Throughput/range figures in docs are desk estimates**, not measurements, until they appear in `docs/MEASUREMENTS.md` with the hardware that produced them.
 
 ## License
 
 [AGPL-3.0](LICENSE).
+
+For assisted device tests and automatic evidence collection, see
+[testing with your phones](docs/TESTING-WITH-PHONES.md).
