@@ -32,3 +32,6 @@ bindings/swift/out/
 # Private device evidence and Python bytecode
 test-runs/
 __pycache__/
+
+# Upstream conformance checkout (not a Rust build-cache artifact)
+.cache/negentropy-conformance/

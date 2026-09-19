@@ -15,7 +15,9 @@ UPSTREAM_COMMIT="76f3cf6e69be505e7295edb08a6152fce30261f1"
 LANGS="${LANGS:-rust,js}"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-work="${NEGENTROPY_WORK_DIR:-$root/target/negentropy-conformance}"
+# Rust cache pruning can preserve .git metadata while removing object files.
+# Keep the reference checkout outside target/, which CI treats as build cache.
+work="${NEGENTROPY_WORK_DIR:-$root/.cache/negentropy-conformance}"
 
 if ! perl -MSession::Token -e1 2>/dev/null; then
     echo "error: perl module Session::Token is missing" >&2
@@ -37,6 +39,11 @@ cargo build --release -p racnet-core --example negentropy_harness
 mkdir -p "$work"
 if [ ! -d "$work/negentropy/.git" ]; then
     git clone "$UPSTREAM_REPO" "$work/negentropy"
+fi
+# Also recover old or partially restored caller-supplied work directories.
+if ! git -C "$work/negentropy" archive "$UPSTREAM_COMMIT" >/dev/null 2>&1; then
+    git -C "$work/negentropy" fetch --refetch "$UPSTREAM_REPO" \
+        '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
 fi
 git -C "$work/negentropy" checkout --quiet --force "$UPSTREAM_COMMIT"
 
