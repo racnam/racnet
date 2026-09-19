@@ -69,7 +69,36 @@ classification, and pair-test orchestration. The ADB runner passed a fresh
 install, offline post, and restart on an API 35 emulator; passive capture was
 correctly recorded as unevaluated. These are not physical BLE test results.
 
-The preview commit's Android and iOS remote workflows passed. A Rust 1.98
-Clippy rule flagged two older chunk conversions; they were updated without a
-wire/algorithm change. The follow-up adds API 29/35 offline emulator CI gates.
-See [phone-testing delegation](TESTING-WITH-PHONES.md) for the next session.
+All final workflows passed at `100608c`: [Rust checks, conformance and fuzzing](https://github.com/racnam/racnet/actions/runs/35444871041),
+[Android build and API 29/35 offline emulator checks](https://github.com/racnam/racnet/actions/runs/35444869609),
+and [iOS build](https://github.com/racnam/racnet/actions/runs/35444869626).
+Rust 1.98 Clippy fixes preserve the wire format and algorithm. The pinned
+Negentropy reference checkout now lives outside the Rust build cache and can
+recover missing Git objects; local conformance and randomized checks passed too.
+
+## Resume after a context reset
+
+Read `CLAUDE.md`, this handoff, `docs/PLAN.md`, and
+[TESTING-WITH-PHONES.md](TESTING-WITH-PHONES.md) first. Inspect `git status`
+and current history before editing; this checkpoint describes the state on
+2026-09-19, not a guarantee about later changes.
+
+Completed and pushed to `main`:
+
+- `3f92e0c`: persistent Android message-board preview.
+- `03260eb`: device evidence runner, emulator CI, testing and threat documentation.
+- `100608c`: conformance checkout/cache repair.
+
+Physical-phone BLE acceptance remains pending. To begin, inspect connected devices
+with `python3 scripts/device_test.py inventory`, then use explicit serials for
+preparation, offline persistence, and the two-phone test. Follow the linked guide;
+handle unexpected screens or failures as evidence to investigate, not a pass.
+The test operator handles unlock/USB prompts and physical movement. Collect logs,
+screenshots and per-step reports automatically; keep raw evidence in ignored
+`test-runs/`. Record verified hardware results in `docs/MEASUREMENTS.md` with
+actual device/OS and physical conditions. Do not invent range or timing results.
+
+Hardware BLE, Bluetooth toggling, unplugged background behavior and range remain
+pending. iOS transport and the broader roadmap remain outside the Android
+preview scope. Do not redo completed implementation work just because the
+conversation context was reset.
