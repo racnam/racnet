@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import org.racnet.android.ble.BleConstants
 import org.racnet.android.metrics.LinkMetrics
 import org.racnet.android.metrics.Meas
@@ -48,6 +49,7 @@ class LinkConnection(
             Dispatchers.IO,
     )
     private val writes = Channel<ByteArray>(Channel.UNLIMITED)
+    private val queuedBytes = java.util.concurrent.atomic.AtomicLong(0)
     private val tornDown = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
@@ -57,26 +59,36 @@ class LinkConnection(
      * closed silently and nothing was started.
      */
     suspend fun start(): Boolean {
+        try {
+            parentScope.coroutineContext.ensureActive()
+            return startActive()
+        } catch (e: Exception) {
+            shutdown()
+            throw e
+        }
+    }
+
+    private suspend fun startActive(): Boolean {
         val open = if (initiator) {
             runtime.connect(this)
         } else {
             val addrBytes = BleConstants.addressToBytes(address)
             if (addrBytes == null) {
-                closeSocketQuietly()
-                onTeardown?.invoke()
+                shutdown(reportToCore = false)
                 return false
             }
             runtime.accept(addrBytes, this)
         }
         if (open == null) {
             // §4.5: refused handshakes are dropped silently.
-            closeSocketQuietly()
-            onTeardown?.invoke()
+            shutdown(reportToCore = false)
             return false
         }
         linkId = open.linkId
         metrics.l2capOpenAtMs = SystemClock.elapsedRealtime()
         registry.register(this)
+        // Shutdown may have raced registration, e.g. during service stop.
+        parentScope.coroutineContext.ensureActive()
         Meas.log(
             "link_open",
             "link" to linkId,
@@ -90,13 +102,16 @@ class LinkConnection(
     }
 
     override fun writeFrames(frames: List<ByteArray>) {
-        val mtu = maxTransmitSize()
         for (frame in frames) {
-            metrics.bytesOut += frame.size
-            for (chunk in FrameChunker.chunk(frame, mtu)) {
-                // UNLIMITED channel: trySend only fails when closed, and
-                // then the link is already dying.
-                writes.trySend(chunk)
+            if (tornDown.get()) return
+            if (queuedBytes.addAndGet(frame.size.toLong()) > MAX_QUEUED_BYTES) {
+                Meas.log("write_backpressure", "link" to linkId)
+                shutdown()
+                return
+            }
+            if (!writes.trySend(frame).isSuccess) {
+                queuedBytes.addAndGet(-frame.size.toLong())
+                return
             }
         }
     }
@@ -113,7 +128,7 @@ class LinkConnection(
      */
     fun shutdown(reportToCore: Boolean = true) {
         if (!tornDown.compareAndSet(false, true)) return
-        writes.close()
+        writes.cancel()
         closeSocketQuietly()
         registry.remove(this)
         if (reportToCore) {
@@ -137,18 +152,25 @@ class LinkConnection(
                 runtime.onBytes(linkId, buffer.copyOf(read))
             }
         } catch (e: IOException) {
-            // Normal BLE link death; fall through to teardown.
+            // Normal BLE link death.
+        } finally {
+            shutdown(reportToCore = true)
         }
-        shutdown(reportToCore = true)
     }
 
     private suspend fun writeLoop() {
         try {
             val output = socket.outputStream
-            for (chunk in writes) {
-                output.write(chunk)
+            for (frame in writes) {
+                for (chunk in FrameChunker.chunk(frame, maxTransmitSize())) {
+                    output.write(chunk)
+                    metrics.bytesOut += chunk.size
+                }
+                queuedBytes.addAndGet(-frame.size.toLong())
             }
         } catch (e: IOException) {
+            // Normal BLE link death.
+        } finally {
             shutdown(reportToCore = true)
         }
     }
@@ -170,5 +192,7 @@ class LinkConnection(
 
     private companion object {
         const val READ_BUFFER_SIZE = 65536
+        // One complete bounded store plus reconciliation framing overhead.
+        const val MAX_QUEUED_BYTES = 72L * 1024 * 1024
     }
 }

@@ -43,6 +43,7 @@ class BlePeripheral(
     private val context: Context,
     private val runtime: NodeRuntime,
     private val registry: ConnectionRegistry,
+    private val onFailure: (String) -> Unit = {},
 ) {
 
     private var serverSocket: BluetoothServerSocket? = null
@@ -52,6 +53,7 @@ class BlePeripheral(
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
             Log.w(TAG, "advertising failed to start: $errorCode")
+            onFailure("Bluetooth advertising failed ($errorCode). Turn the mesh off and on to retry.")
         }
     }
 
@@ -74,11 +76,11 @@ class BlePeripheral(
         val psm = socket.psm
         Meas.log("listening", "psm" to psm)
 
-        if (!startGattServer(manager, psm)) {
+        advertiser = adapter.bluetoothLeAdvertiser
+        if (advertiser == null || !startGattServer(manager, psm)) {
             stop()
             return false
         }
-        startAdvertising(adapter.bluetoothLeAdvertiser)
 
         scope.launch(Dispatchers.IO) { acceptLoop(scope, socket) }
         return true
@@ -108,6 +110,11 @@ class BlePeripheral(
     private fun startGattServer(manager: BluetoothManager, psm: Int): Boolean {
         val psmBytes = BleConstants.psmToBytes(psm)
         val callback = object : BluetoothGattServerCallback() {
+            override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+                if (status == BluetoothGatt.GATT_SUCCESS) startAdvertising(advertiser)
+                else onFailure("Bluetooth service registration failed ($status). Retry the mesh.")
+            }
+
             override fun onCharacteristicReadRequest(
                 device: android.bluetooth.BluetoothDevice,
                 requestId: Int,
@@ -115,7 +122,7 @@ class BlePeripheral(
                 characteristic: BluetoothGattCharacteristic,
             ) {
                 val value = if (characteristic.uuid == BleConstants.PSM_CHARACTERISTIC_UUID &&
-                    offset <= psmBytes.size
+                    offset in 0..psmBytes.size
                 ) {
                     psmBytes.copyOfRange(offset, psmBytes.size)
                 } else {
@@ -173,6 +180,7 @@ class BlePeripheral(
             leAdvertiser.startAdvertising(settings, data, advertiseCallback)
         } catch (e: SecurityException) {
             Log.w(TAG, "missing advertise permission", e)
+            onFailure("Bluetooth advertising permission is missing.")
         }
     }
 

@@ -31,7 +31,7 @@ object Permissions {
         }
 
     fun allGranted(context: Context): Boolean =
-        required().all { permission ->
+        required().filter { it != Manifest.permission.POST_NOTIFICATIONS }.all { permission ->
             context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
         }
 

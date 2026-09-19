@@ -4,6 +4,11 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.bluetooth.BluetoothAdapter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineStart
 import android.content.pm.ServiceInfo
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
@@ -33,45 +38,84 @@ class MeshService : LifecycleService() {
     private lateinit var peripheral: BlePeripheral
     private lateinit var central: BleCentral
 
+    private var starting = false
+    private val radioReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_OFF) {
+                fail("Bluetooth is off. Enable it, then turn the mesh on again.")
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         app = RacnetApplication.from(this)
-        peripheral = BlePeripheral(this, app.nodeRuntime, app.connectionRegistry)
-        central = BleCentral(this, app.nodeRuntime, app.connectionRegistry)
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, radioReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            androidx.core.content.ContextCompat.RECEIVER_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        startForeground(
-            NOTIFICATION_ID,
-            buildNotification(peers = 0, entries = 0uL),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
-        if (!runningState.value) {
-            runningState.value = true
-            app.nodeRuntime.startTicking(lifecycleScope)
-            wireEvents()
-            wireNotification()
-            peripheral.start(lifecycleScope)
-            central.start(lifecycleScope)
-            Meas.log("service_started", "t_ms" to SystemClock.elapsedRealtime())
+        try {
+            startForeground(
+                NOTIFICATION_ID, buildNotification(peers = 0, entries = 0uL),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            )
+        } catch (e: SecurityException) {
+            fail("Bluetooth permission is missing. Reopen Racnet to grant it.")
+            return START_NOT_STICKY
+        }
+        if (!starting) {
+            starting = true
+            errorState.value = null
+            lifecycleScope.launch {
+                combine(app.ready, app.startupError) { ready, error -> ready || error != null }.first { it }
+                if (!app.ready.value) {
+                    fail(app.startupError.value ?: "Local data is unavailable.")
+                    return@launch
+                }
+                peripheral = BlePeripheral(this@MeshService, app.nodeRuntime, app.connectionRegistry, ::fail)
+                central = BleCentral(this@MeshService, app.nodeRuntime, app.connectionRegistry, onFailure = ::fail)
+                app.nodeRuntime.startTicking(lifecycleScope)
+                wireEvents()
+                wireNotification()
+                try {
+                    if (!peripheral.start(lifecycleScope) || !central.start(lifecycleScope)) {
+                        fail("Could not start Bluetooth mesh. Check Bluetooth and permissions, then try again.")
+                        return@launch
+                    }
+                    runningState.value = true
+                    Meas.log("service_started", "t_ms" to SystemClock.elapsedRealtime())
+                } catch (e: SecurityException) {
+                    fail("Bluetooth permission was revoked. Reopen Racnet to grant it.")
+                }
+            }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         runningState.value = false
-        central.stop()
-        peripheral.stop()
-        app.connectionRegistry.shutdownAll()
+        unregisterReceiver(radioReceiver)
+        if (::central.isInitialized) central.stop()
+        if (::peripheral.isInitialized) peripheral.stop()
+        if (app.ready.value) app.connectionRegistry.shutdownAll()
         Meas.log("service_stopped", "t_ms" to SystemClock.elapsedRealtime())
         super.onDestroy()
+    }
+
+    private fun fail(message: String) {
+        errorState.value = message
+        runningState.value = false
+        stopSelf()
     }
 
     /** Routes core events to the registry and the measurement log. */
     private fun wireEvents() {
         val registry = app.connectionRegistry
-        lifecycleScope.launch {
+        lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
             app.nodeRuntime.events.collect { event ->
                 when (event) {
                     is Event.Established ->
@@ -88,16 +132,23 @@ class MeshService : LifecycleService() {
                     is Event.SyncSessionClosed -> {
                         val metrics = registry.connection(event.linkId)?.metrics ?: return@collect
                         metrics.syncDoneAtMs = SystemClock.elapsedRealtime()
-                        val duration = metrics.syncDoneAtMs - metrics.establishedAtMs
+                        val duration = metrics.syncDoneAtMs - metrics.l2capOpenAtMs
                         Meas.log(
                             "sync_done",
                             "link" to event.linkId,
                             "sid" to event.sessionId,
                             "bytes_in" to metrics.bytesIn,
                             "bytes_out" to metrics.bytesOut,
-                            "dur_ms" to duration,
-                            "tput_in_kbps" to Meas.kbps(metrics.bytesIn, duration),
+                            "link_dur_ms" to duration,
+                            "entries" to app.nodeRuntime.entryCount.value,
+                            "link_avg_in_kbps" to Meas.kbps(metrics.bytesIn, duration),
                         )
+                    }
+                    is Event.Closed -> {
+                        val cause = event.cause
+                        if (cause is uniffi.racnet_core.CloseCause.ProtocolViolation && (cause.code == 4uL || cause.code == 5uL)) {
+                            errorState.value = "Local storage or sync resources are full. Some messages were not received."
+                        }
                     }
                     else -> {}
                 }
@@ -138,6 +189,9 @@ class MeshService : LifecycleService() {
 
     companion object {
         private const val NOTIFICATION_ID = 1
+
+        private val errorState = MutableStateFlow<String?>(null)
+        val error: StateFlow<String?> = errorState
 
         private val runningState = MutableStateFlow(false)
 

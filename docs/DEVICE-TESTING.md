@@ -100,8 +100,9 @@ phone into a file while testing:
 adb -s <SERIAL> logcat -v time -s RacnetMeas | tee phoneA-$(date +%F).log
 ```
 
-Every line is machine-readable: `MEAS event=<name> key=value ...`, with
-throughput already computed on `sync_done` lines (`tput_in_kbps`). The
+Every line is machine-readable: `MEAS event=<name> key=value ...`.
+`sync_done` lines include `link_avg_in_kbps`, a cumulative link average
+including handshake and idle time, not isolated radio throughput. The
 in-app diagnostics screen shows the same per-link phase timings with
 copy-to-clipboard, which is often faster for transcribing one run.
 
@@ -115,7 +116,7 @@ Run the procedures in `docs/MEASUREMENT-PROCEDURES.md`:
 
 | Id | What | Effort |
 |----|------|--------|
-| P1 | Throughput: 100 KiB entry sync at 1 m, median of 3 | ~15 min |
+| P1 | Throughput: 48 KiB entry sync at 1 m, median of 3 | ~15 min |
 | P2 | Timing: cold-start phase deltas + sync duration | ~15 min |
 | P3 | Range: walk-away until the link stops recovering | ~30 min, needs space |
 | P4 | Background survival: screen-off, doze, OEM matrix | hours, spread out |
@@ -168,3 +169,31 @@ them to a working session — that bundle is enough to debug from.
   blocks on them.
 - **After any transport-touching change:** rerun §4 as the regression
   smoke test on real hardware.
+
+## Android preview acceptance (deferred hardware gate)
+
+The Android-first scope supersedes the M5 ordering above. Hardware validation
+may be run later; the preview must not be called radio-validated until then.
+The public board is now the main screen; diagnostic entry buttons are under
+**Peers & tools**. All of these checks are still pending on real phones:
+
+1. **One phone, offline:** post two messages with mesh off. Force-stop and
+   reopen. Both messages and the author identity must remain. Rotate the
+   screen with a draft and confirm the draft survives.
+2. **Two phones:** enable Bluetooth, grant permissions, turn mesh on, and
+   verify both directions of message transfer. Post several messages quickly.
+   Force-stop and reopen the receiver; received messages must remain too.
+3. **Reconnect:** stop the mesh on B, post on A, restart B's mesh, and confirm
+   convergence. Repeat after disabling/re-enabling Bluetooth; the app should
+   report the stopped radio and allow the mesh to be started again.
+4. **Optional third phone:** connect A–B and B–C with A and C out of radio
+   range. Post at A and verify C receives it through B. Reverse the direction.
+5. **Screen off:** run P4, recording the actual device/OS/battery settings.
+6. **Upgrade:** reinstall a newer APK signed with the same key using `-r`;
+   verify messages and identity remain. Debug APKs built on different machines
+   may have different signing keys; do not uninstall to resolve this unless
+   losing that phone's data is acceptable.
+
+A locally built APK is a test build, not a store release. Keep full logs if
+any check fails. Never clear app data simply to work around a startup error
+without first deciding whether the messages and identity can be discarded.

@@ -37,10 +37,13 @@
     <application
         android:name=".RacnetApplication"
         android:label="Racnet"
+        android:icon="@drawable/ic_launcher"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

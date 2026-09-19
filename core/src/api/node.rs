@@ -125,6 +125,22 @@ impl Node {
         }))
     }
 
+    /// Opens a persistent node in an existing private application directory.
+    #[uniffi::constructor]
+    pub fn open(identity: Identity, path: String) -> Result<Arc<Node>, ApiError> {
+        let node = Self::new(identity)?;
+        node.lock().store =
+            EntryStore::open(std::path::Path::new(&path)).map_err(|err| ApiError::Storage {
+                reason: err.to_string(),
+            })?;
+        Ok(node)
+    }
+
+    /// Our Ed25519 author key (distinct from the Noise peer fingerprint).
+    pub fn author_key(&self) -> Vec<u8> {
+        self.lock().signing_key.verifying_key().to_bytes().to_vec()
+    }
+
     /// SHA-256 fingerprint of our static public key (32 bytes).
     pub fn fingerprint(&self) -> Vec<u8> {
         self.fingerprint.0.to_vec()
@@ -336,6 +352,9 @@ impl Node {
         let view = entry_view(&entry);
         match inner.store.insert(entry) {
             Ok(_) => Ok(view),
+            Err(err @ (StoreError::Storage(_) | StoreError::Capacity)) => Err(ApiError::Storage {
+                reason: err.to_string(),
+            }),
             Err(StoreError::SortKeyReserved) => Err(ApiError::InvalidArgument {
                 reason: "sort key 2^64 - 1 is reserved".to_string(),
             }),

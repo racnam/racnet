@@ -22,6 +22,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.EmptyCoroutineContext
 import org.racnet.android.mesh.ConnectionRegistry
 import org.racnet.android.mesh.LinkConnection
 import org.racnet.android.metrics.LinkMetrics
@@ -44,6 +50,7 @@ class BleCentral(
     private val runtime: NodeRuntime,
     private val registry: ConnectionRegistry,
     private val policy: ConnectionPolicy = ConnectionPolicy(),
+    private val onFailure: (String) -> Unit = {},
 ) {
 
     private var scanner: BluetoothLeScanner? = null
@@ -60,6 +67,7 @@ class BleCentral(
 
         override fun onScanFailed(errorCode: Int) {
             Log.w(TAG, "scan failed: $errorCode")
+            onFailure("Bluetooth scanning failed ($errorCode). Wait a moment, then retry the mesh.")
         }
     }
 
@@ -153,34 +161,55 @@ class BleCentral(
         } catch (e: SecurityException) {
             return@withContext null
         }
+        var handedOff = false
         try {
-            // Blocking; bounded by the stack's own L2CAP connect timeout.
-            socket.connect()
+            withTimeout(15_000L) {
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    continuation.invokeOnCancellation {
+                        try { socket.close() } catch (_: IOException) { }
+                    }
+                    Dispatchers.IO.dispatch(EmptyCoroutineContext, Runnable {
+                        try {
+                            socket.connect()
+                            continuation.resume(Unit)
+                        } catch (e: Exception) {
+                            continuation.resumeWithException(e)
+                        }
+                    })
+                }
+            }
+            scope.coroutineContext.ensureActive()
+            metrics.l2capOpenAtMs = SystemClock.elapsedRealtime()
+            val connection = LinkConnection(
+                socket = socket,
+                runtime = runtime,
+                registry = registry,
+                parentScope = scope,
+                initiator = true,
+                metrics = metrics,
+                // Return the address to the policy however the link dies —
+                // the callback fires exactly once, from whichever side
+                // notices first, with no subscription race.
+                onTeardown = {
+                    scope.launch(policyDispatcher) { policy.closed(address) }
+                },
+            )
+            if (connection.start()) {
+                handedOff = true
+                connection
+            } else null
         } catch (e: IOException) {
             Log.i(TAG, "L2CAP connect to $address failed")
-            try {
-                socket.close()
-            } catch (closeError: IOException) {
-                // Already gone.
+            null
+        } catch (e: SecurityException) {
+            null
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            null
+        } finally {
+            if (!handedOff) {
+                try { socket.close() } catch (_: IOException) { }
             }
-            return@withContext null
         }
-        metrics.l2capOpenAtMs = SystemClock.elapsedRealtime()
-        val connection = LinkConnection(
-            socket = socket,
-            runtime = runtime,
-            registry = registry,
-            parentScope = scope,
-            initiator = true,
-            metrics = metrics,
-            // Return the address to the policy however the link dies —
-            // the callback fires exactly once, from whichever side
-            // notices first, with no subscription race.
-            onTeardown = {
-                scope.launch(policyDispatcher) { policy.closed(address) }
-            },
-        )
-        if (connection.start()) connection else null
     }
 
     /**

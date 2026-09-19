@@ -51,12 +51,17 @@ interface LinkTransport {
  * the named link; events fan out on [events]. On establishment, and after
  * a local entry is created, reconciliation is opened automatically.
  */
-class NodeRuntime(identity: Identity) {
+class NodeRuntime(
+    identity: Identity,
+    storagePath: String,
+    private val monotonicUs: () -> ULong = { (SystemClock.elapsedRealtimeNanos() / 1_000).toULong() },
+) {
 
-    private val node = Node(identity)
+    private val node = Node.open(identity, storagePath)
     private val lock = Mutex()
     private val transports = ConcurrentHashMap<ULong, LinkTransport>()
     private val establishedLinks = ConcurrentHashMap.newKeySet<ULong>()
+    private val syncScheduler = SyncScheduler()
 
     // Application-lifetime scope: transport-close reporting must survive
     // the service scope being torn down, or the core keeps ghost links
@@ -73,16 +78,18 @@ class NodeRuntime(identity: Identity) {
     /** Every core event, in order, for UI and metrics. */
     val events: SharedFlow<Event> = _events
 
-    private val _entryCount = MutableStateFlow(0uL)
+    private val _entryCount = MutableStateFlow(node.entryCount())
 
     /** Live entry count for the notification and UI. */
     val entryCount: StateFlow<ULong> = _entryCount
+
+    val authorKey: ByteArray = node.authorKey()
 
     /** Our own 32-byte fingerprint. */
     val fingerprint: ByteArray = node.fingerprint()
 
     /** Microseconds on the monotonic, sleep-counting clock. */
-    fun nowUs(): ULong = (SystemClock.elapsedRealtimeNanos() / 1_000).toULong()
+    fun nowUs(): ULong = monotonicUs()
 
     /**
      * We opened the transport connection (BLE central): Noise initiator.
@@ -109,7 +116,15 @@ class NodeRuntime(identity: Identity) {
 
     /** Raw bytes from a link's socket, any segmentation. */
     suspend fun onBytes(linkId: ULong, bytes: ByteArray) = lock.withLock {
-        dispatch(linkId, node.onBytes(linkId, bytes, nowUs()))
+        val io = node.onBytes(linkId, bytes, nowUs())
+        // A multi-entry push can commit entries before a later record fails.
+        // Refresh from the store even if that failure suppressed Stored events.
+        val count = node.entryCount()
+        if (count != _entryCount.value) {
+            _entryCount.value = count
+            establishedLinks.filter { it != linkId }.forEach { syncScheduler.request(it) }
+        }
+        dispatch(linkId, io)
     }
 
     /** The link's socket died. Idempotent. */
@@ -130,8 +145,16 @@ class NodeRuntime(identity: Identity) {
     suspend fun createEntry(kind: ULong, payload: ByteArray): EntryView = lock.withLock {
         val view = node.createEntry(kind, payload, System.currentTimeMillis().toULong())
         _entryCount.value = node.entryCount()
-        establishedLinks.forEach { linkId -> startSyncLocked(linkId) }
+        establishedLinks.forEach { linkId -> syncScheduler.request(linkId) }
+        drainSyncsLocked()
         view
+    }
+
+    /** Releases the journal lock; callers must close transports first. */
+    suspend fun close() = lock.withLock {
+        check(transports.isEmpty()) { "close transports before the runtime" }
+        runtimeScope.coroutineContext[Job]?.cancel()
+        node.close()
     }
 
     /** The stored entries, newest window first left to the caller. */
@@ -163,30 +186,48 @@ class NodeRuntime(identity: Identity) {
             when (event) {
                 is Event.Established -> {
                     establishedLinks.add(event.linkId)
-                    startSyncLocked(event.linkId)
+                    syncScheduler.request(event.linkId)
                 }
                 is Event.Closed -> {
                     establishedLinks.remove(event.linkId)
+                    syncScheduler.closed(event.linkId)
                     transports.remove(event.linkId)?.closeFromCore(event.cause)
                 }
-                is Event.EntryStored -> _entryCount.value = node.entryCount()
+                is Event.EntryStored -> {
+                    _entryCount.value = node.entryCount()
+                    establishedLinks.filter { it != event.linkId }.forEach {
+                        syncScheduler.request(it)
+                    }
+                }
+                is Event.SyncSessionClosed -> {
+                    if (event.openedByUs) {
+                        syncScheduler.completed(event.linkId, event.sessionId)
+                    }
+                }
                 else -> {}
             }
             _events.tryEmit(event)
         }
+        drainSyncsLocked()
     }
 
     /**
-     * Opens a full-window reconciliation session. Callers hold [lock].
-     * Refusals (session cap, closing race) are not fatal: the next
-     * establishment or entry retries.
+     * At most one locally opened snapshot per link. Changes during that
+     * snapshot require a follow-up; refusals retry on the next tick.
+     * Callers hold [lock]. Process rare terminal start errors after draining.
      */
-    private fun startSyncLocked(linkId: ULong) {
-        val start = try {
-            node.startSync(linkId, SyncWindow(sinceMs = 0uL, untilMs = ULong.MAX_VALUE))
-        } catch (e: ApiException) {
-            return
+    private fun drainSyncsLocked() {
+        val events = mutableListOf<Event>()
+        syncScheduler.drain { linkId ->
+            val start = try {
+                node.startSync(linkId, SyncWindow(sinceMs = 0uL, untilMs = ULong.MAX_VALUE))
+            } catch (e: ApiException) {
+                return@drain null
+            }
+            transports[linkId]?.writeFrames(start.io.frames)
+            events.addAll(start.io.events)
+            start.sessionId
         }
-        dispatch(linkId, start.io)
+        if (events.isNotEmpty()) dispatchEvents(events)
     }
 }

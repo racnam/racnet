@@ -26,6 +26,10 @@ thiserror.workspace = true
 uniffi.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+# std file locking does not support Android on the current toolchain (ADR-0017).
+libc = "0.2.189"
+
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true

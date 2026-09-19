@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android public nearby board with offline composition, author labels, UTF-8
+  validation, persistent messages, and visible startup/radio/storage failures.
+- Durable core journal with signature verification on restart, exclusive
+  writer locking, incomplete-tail recovery, and 64 MiB / 10,000-entry bounds.
+- Android runtime integration tests against the real host Rust library,
+  including burst posting, three-node relay, and received-message persistence.
+
+### Fixed
+
+- Coalesce reconciliation requests and retry refusals; relay received entries
+  to other connected peers instead of waiting for another connection.
+- Bound queued socket output; close sockets during cancellation and connect
+  timeouts; start advertising only after GATT service registration succeeds.
+- Preserve unreadable identities and atomically persist new ones.
+- Replace the invalid 100 KiB diagnostic entry with a frameable 48 KiB entry.
+
+### Previously implemented
+
 - Repository scaffold: protocol spec skeleton, ADRs, CI, license.
 - Milestone 0 toolchain proof: `racnet-core` Rust crate exposing `version()`
   through UniFFI to a SwiftUI iOS app, a Jetpack Compose Android app, and the

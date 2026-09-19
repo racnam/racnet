@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +48,8 @@ fun OnboardingScreen(onReady: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -64,7 +69,7 @@ fun OnboardingScreen(onReady: () -> Unit) {
                     Text(
                         "This Android version requires location permission for " +
                             "Bluetooth scanning. Racnet never reads or stores " +
-                            "your location.",
+                            "your location. The system Location switch must also be on to find peers.",
                     )
                 }
                 if (permissionsGranted) {
@@ -84,8 +89,8 @@ fun OnboardingScreen(onReady: () -> Unit) {
             ) {
                 Text("Background operation", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Exempting Racnet from battery optimization keeps the mesh " +
-                        "alive while your screen is off.",
+                    "Exempting Racnet from battery optimization can help the mesh " +
+                        "stay alive while your screen is off. Behavior varies by phone.",
                 )
                 if (batteryChecked) {
                     Text("Exempted ✓")
@@ -104,8 +109,8 @@ fun OnboardingScreen(onReady: () -> Unit) {
 
         Button(
             onClick = onReady,
-            enabled = permissionsGranted,
+
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Continue") }
+        ) { Text(if (permissionsGranted) "Continue" else "Continue offline") }
     }
 }

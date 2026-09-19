@@ -197,6 +197,12 @@ pub enum Event {
 /// behavior on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
 pub enum ApiError {
+    /// Local persistent storage is unavailable or full.
+    #[error("storage unavailable: {reason}")]
+    Storage {
+        /// Local diagnostic, never sent to peers.
+        reason: String,
+    },
     /// Identity seeds must be exactly 32 bytes each.
     #[error("identity seeds must be exactly 32 bytes each")]
     InvalidIdentity,

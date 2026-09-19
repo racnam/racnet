@@ -3,6 +3,12 @@ package org.racnet.android
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import org.racnet.android.identity.IdentityStore
 import org.racnet.android.mesh.ConnectionRegistry
 import org.racnet.android.node.NodeRuntime
@@ -23,11 +29,28 @@ class RacnetApplication : Application() {
     lateinit var connectionRegistry: ConnectionRegistry
         private set
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _ready = MutableStateFlow(false)
+    val ready: StateFlow<Boolean> = _ready
+    private val _startupError = MutableStateFlow<String?>(null)
+    val startupError: StateFlow<String?> = _startupError
+
     override fun onCreate() {
         super.onCreate()
         identityStore = IdentityStore(this)
-        nodeRuntime = NodeRuntime(identityStore.loadOrCreate())
-        connectionRegistry = ConnectionRegistry(nodeRuntime.fingerprint)
+        appScope.launch {
+            try {
+                nodeRuntime = NodeRuntime(
+                    identityStore.loadOrCreate(),
+                    java.io.File(filesDir, "entries.racnet").absolutePath,
+                )
+                connectionRegistry = ConnectionRegistry(nodeRuntime.fingerprint)
+                _ready.value = true
+            } catch (e: Exception) {
+                _startupError.value = "Cannot open local data. Your files have been preserved. " +
+                    "Free storage if needed, then reopen Racnet. ${e.message.orEmpty()}"
+            }
+        }
 
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(

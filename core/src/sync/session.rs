@@ -190,6 +190,8 @@ impl Syncer {
             match store.insert(entry.clone()) {
                 Ok(true) => output.events.push(SyncEvent::Stored(id)),
                 Ok(false) => output.events.push(SyncEvent::DuplicateIgnored(id)),
+                Err(StoreError::Storage(_)) => return Err(SyncError::Storage),
+                Err(StoreError::Capacity) => return Err(SyncError::ResourceLimit),
                 Err(StoreError::BadSignature) => {
                     return Err(SyncError::Violation("pushed entry signature invalid"))
                 }

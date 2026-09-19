@@ -6,6 +6,7 @@
 //! reconciliation sessions can snapshot sort-key windows cheaply.
 
 pub mod item;
+mod journal;
 pub mod order;
 
 use std::collections::HashMap;
@@ -18,6 +19,12 @@ use crate::wire::{Entry, SortKeyWindow};
 /// Errors from inserting entries into the store.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StoreError {
+    /// Durable storage could not be read or written.
+    #[error("entry storage: {0}")]
+    Storage(String),
+    /// The durable store has reached its configured bound.
+    #[error("entry storage is full (64 MiB or 10,000 entries)")]
+    Capacity,
     /// The entry's signature failed verification (PROTOCOL.md §3.5).
     #[error("invalid entry signature")]
     BadSignature,
@@ -31,12 +38,18 @@ pub enum StoreError {
 pub struct EntryStore {
     entries: HashMap<EntryId, Entry>,
     order: OrderIndex,
+    journal: Option<journal::Journal>,
 }
 
 impl EntryStore {
     /// An empty store.
     pub fn new() -> EntryStore {
         EntryStore::default()
+    }
+
+    /// Opens a durable store, recovering an incomplete final append.
+    pub fn open(path: &std::path::Path) -> Result<Self, StoreError> {
+        journal::Journal::open(path)
     }
 
     /// Verifies and inserts an entry.
@@ -52,6 +65,12 @@ impl EntryStore {
         let id = entry.id();
         if self.entries.contains_key(&id) {
             return Ok(false);
+        }
+        if let Some(journal) = &mut self.journal {
+            if self.entries.len() >= journal::MAX_ENTRIES {
+                return Err(StoreError::Capacity);
+            }
+            journal.append(&entry)?;
         }
         self.order.insert(Item {
             sort_key: entry.sort_key,

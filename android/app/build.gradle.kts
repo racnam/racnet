@@ -14,8 +14,8 @@ android {
         // transport is the app's reason to exist (ADR-0016).
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0-preview"
     }
 
     compileOptions {
@@ -24,6 +24,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    testOptions {
+        unitTests.all {
+            it.systemProperty("jna.library.path", rootProject.file("../target/release").absolutePath)
+        }
     }
     buildFeatures {
         compose = true
@@ -46,6 +51,7 @@ dependencies {
     // JNA carries the JNI surface required by UniFFI's Kotlin bindings.
     implementation("net.java.dev.jna:jna:5.15.0@aar")
 
+    testRuntimeOnly("net.java.dev.jna:jna:5.15.0@jar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
 }

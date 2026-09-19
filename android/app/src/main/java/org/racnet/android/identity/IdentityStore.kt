@@ -1,6 +1,7 @@
 package org.racnet.android.identity
 
 import android.content.Context
+import android.util.AtomicFile
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
@@ -16,13 +17,13 @@ import uniffi.racnet_core.generateIdentity
 /**
  * Persists the device identity: the two seeds from the core, encrypted
  * with an AndroidKeyStore AES-GCM key and stored in [Context.getNoBackupFilesDir]
- * (ADR-0016). Losing the Keystore key rotates the identity, which the
- * protocol tolerates: there is no session state to lose, and entries
- * re-sync from peers.
+ * (ADR-0016, revised by ADR-0017). Unreadable identities are preserved
+ * and reported at startup instead of silently changing the author key.
  */
 class IdentityStore(context: Context) {
 
     private val file = File(context.noBackupFilesDir, FILE_NAME)
+    private val atomic = AtomicFile(file)
 
     /** The persisted identity, or a freshly generated and persisted one. */
     fun loadOrCreate(): Identity {
@@ -33,19 +34,13 @@ class IdentityStore(context: Context) {
     }
 
     private fun load(): Identity? {
-        if (!file.exists()) return null
-        return try {
-            val (iv, ciphertext) = IdentityEnvelope.unwrap(file.readBytes())
+        if (!file.exists() && !File(file.path + ".bak").exists()) return null
+        return run {
+            val (iv, ciphertext) = IdentityEnvelope.unwrap(atomic.readFully())
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, iv))
             val (noiseSeed, signingSeed) = IdentityEnvelope.split(cipher.doFinal(ciphertext))
             Identity(noiseSeed = noiseSeed, signingSeed = signingSeed)
-        } catch (e: Exception) {
-            // An unreadable identity file (lost Keystore key, corrupt
-            // blob) means this device's identity is gone; rotate rather
-            // than brick the mesh.
-            file.delete()
-            null
         }
     }
 
@@ -56,10 +51,14 @@ class IdentityStore(context: Context) {
             IdentityEnvelope.join(identity.noiseSeed, identity.signingSeed),
         )
         val blob = IdentityEnvelope.wrap(cipher.iv, ciphertext)
-        // Write-then-rename so a crash never leaves a half-written file.
-        val tmp = File(file.parentFile, "$FILE_NAME.tmp")
-        tmp.writeBytes(blob)
-        check(tmp.renameTo(file)) { "failed to move identity file into place" }
+        val output = atomic.startWrite()
+        try {
+            output.write(blob)
+            atomic.finishWrite(output)
+        } catch (e: Exception) {
+            atomic.failWrite(output)
+            throw e
+        }
     }
 
     private fun key(): SecretKey {

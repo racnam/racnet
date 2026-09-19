@@ -5,6 +5,9 @@ use crate::wire::ErrorCode;
 /// Errors produced by reconciliation and sync-session handling.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SyncError {
+    /// Local disk failure; details are never sent to the peer.
+    #[error("local storage unavailable")]
+    Storage,
     /// The peer broke a session or entry rule (PROTOCOL.md §6–§7).
     #[error("protocol violation: {0}")]
     Violation(&'static str),
@@ -31,6 +34,7 @@ impl SyncError {
     pub fn error_code(&self) -> ErrorCode {
         match self {
             SyncError::Violation(_) | SyncError::Malformed(_) => ErrorCode::ProtocolViolation,
+            SyncError::Storage => ErrorCode::Internal,
             SyncError::ResourceLimit => ErrorCode::ResourceLimit,
             // Local misuse or an unsupported peer, not a peer violation.
             SyncError::UnsupportedVersion(_)

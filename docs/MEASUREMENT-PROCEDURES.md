@@ -15,21 +15,30 @@ Every record is one line, `MEAS event=<name> key=value ...`, timed with
 the device's monotonic clock. The diagnostics screen shows the same
 per-link numbers and offers copy-to-clipboard.
 
-## P1 — Radio throughput (BLE L2CAP CoC)
+## P1 — Link-average sync throughput (BLE L2CAP CoC)
 
-1. Two devices, 1 m apart, foreground, screens on, mesh service running
-   on both, both otherwise idle.
-2. On device A create one 100 KiB test entry (status screen). Device B
-   holds no entries.
-3. Sync runs automatically on the established link. Read
-   `tput_in_kbps` and `bytes_in` from B's `MEAS event=sync_done` line
-   (or B's diagnostics screen).
-4. Repeat 3×, deleting the app's data on B between runs (fresh store).
-   Record the median in the *Radio throughput* table, path
-   "BLE L2CAP CoC, 1 hop, 1 m", method "P1".
-5. Variant worth one row: 10 × 10 KiB entries instead of 1 × 100 KiB —
-   many-entry sync exercises reconciliation differently than one large
-   payload.
+The diagnostics/log field `link_avg_in_kbps` is a cumulative link average,
+including handshake, reconciliation, and idle time. It is **not** isolated
+radio or payload-transfer throughput. Do not compare a long-idle connection
+with a fresh link. Old `tput_in_kbps` logs used a different denominator and
+must not be used for this procedure.
+
+1. Use disposable test app data. On A, with mesh off, create exactly one
+   48 KiB test entry under **Peers & tools**. B must have an empty store.
+   A 100 KiB entry does not fit a single protocol frame and is not supported.
+2. Put the phones 1 m apart, screens on, and start both meshes. Capture logs.
+3. Confirm B holds A's entry. Use B's first `sync_done` record reporting
+   `entries=1`, with `bytes_in`, `link_dur_ms`, and `link_avg_in_kbps`.
+4. Stop both meshes. Clear **B's disposable test data only**, relaunch,
+   grant permissions, and repeat for three fresh connections. Reuse the
+   same single entry on A. Record the median, label it "BLE link-average
+   sync, 48 KiB, 1 hop, 1 m (includes handshake)", method "P1".
+5. A separate variant can use four 10 KiB entries. Record the actual total
+   and use the record reporting all four entries. Never mix the two trials.
+
+For isolated radio throughput, additional transport instrumentation is
+required; no such number should be inferred from the existing lifetime
+counters.
 
 ## P2 — Timing (discovery, establishment, sync)
 

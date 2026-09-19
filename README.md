@@ -2,11 +2,43 @@
 
 An offline-first, infrastructure-free peer-to-peer **sync substrate** for consumer phones. No servers, no towers, no ISP — the mesh is the people carrying it.
 
-**Status: pre-alpha. Nothing here is usable yet.** The wire protocol spec (v0.2.0), its framing/serialization layer, the sync core — set reconciliation (Negentropy, validated against the upstream conformance suite) over signed entries in an in-memory store — and the Noise session layer (an in-house `Noise_XX_25519_ChaChaPoly_SHA256` engine interop-tested against snow, driving encrypted links with rekeying, rate limiting, and fuzzed parsers) are tested against a simulated transport. The first radio exists: Android devices sync over BLE L2CAP channels behind a foreground service, per the spec's §9.1 transport binding. Throughput and range are unmeasured until `docs/MEASUREMENTS.md` says otherwise, entries do not persist across restarts, iOS has no transport yet, and there is no app functionality beyond diagnostics.
+**Status: Android preview; hardware acceptance pending.** Android now has a
+public nearby message board, durable signed entries, and automatic BLE sync
+and relay. Messages can be written offline and survive process restarts.
+The Rust core is tested through simulated transports and the Android runtime;
+real-device Bluetooth behavior, background survival, throughput, and range
+remain unverified. iOS is still a scaffold. This is a sideload preview, not
+an audited or public-store release.
+
+## Try the Android preview
+
+Build the APK with the commands below or download the `racnet-debug-apk`
+artifact from a successful Android CI run. Install it on Android 10+:
+
+```sh
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Open Racnet, grant permissions, and post a message to the public board.
+Turn the mesh on on two nearby phones to exchange messages. The board is
+public: peers can read, retain, and relay posts. Link encryption does not
+make posts private. Author labels are signing-key identifiers, not verified
+real-world identities. Delivery is opportunistic, with no delivery receipt.
+
+Messages and identity survive app restarts and compatible updates. App-data
+clearing or uninstalling removes this phone's copy and identity; copies on
+other phones remain. Storage is capped at 64 MiB or 10,000 entries. There is
+no automatic eviction or remote deletion. Bodies live in private app storage
+without separate at-rest encryption; the identity is Keystore-wrapped.
+
+See [preview handoff](docs/ANDROID-PREVIEW.md) for validation results and
+[device testing](docs/DEVICE-TESTING.md) for the deferred acceptance
+checklist and [release scope](docs/PLAN.md) for what remains outside this
+preview.
 
 ## What this is (and isn't)
 
-Racnet is not a chat app. It is a general-purpose, **spec-first** data layer that reconciles a signed, content-addressed data set between nearby devices over Bluetooth Low Energy, with opportunistic upgrades to faster radios (Multipeer/AWDL on iOS, WiFi Aware on Android). Messaging, static "mesh sites", and large-file distribution are clients of that layer, not the layer itself.
+Racnet is a general-purpose, **spec-first** data layer that reconciles a signed, content-addressed data set between nearby devices over Bluetooth Low Energy, with opportunistic upgrades to faster radios (Multipeer/AWDL on iOS, WiFi Aware on Android). Messaging, static "mesh sites", and large-file distribution are clients of that layer, not the layer itself. The Android preview includes a small public message-board client.
 
 The design goal that separates it from existing BLE mesh messengers: a wire protocol specified well enough (`docs/PROTOCOL.md`) that independent implementations can be written and verified against conformance vectors, with set reconciliation (RBSR/Negentropy) rather than ad-hoc gossip as the sync primitive.
 

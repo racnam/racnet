@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ fun DiagnosticsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -77,9 +79,9 @@ fun report(metrics: LinkMetrics): String = buildString {
         append("\n  ").append(label).append(": ").append(ms).append(" ms")
     }
     append("\n  bytes in/out: ").append(metrics.bytesIn).append('/').append(metrics.bytesOut)
-    val syncWindow = metrics.syncDoneAtMs - metrics.establishedAtMs
+    val syncWindow = metrics.syncDoneAtMs - metrics.l2capOpenAtMs
     if (metrics.syncDoneAtMs > 0 && syncWindow > 0) {
-        append("\n  sync throughput in: ")
+        append("\n  link average in (includes idle time): ")
             .append(Meas.kbps(metrics.bytesIn, syncWindow))
             .append(" kbit/s")
     }
