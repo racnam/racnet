@@ -1,9 +1,32 @@
 package org.racnet.android.metrics
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class MeasTest {
+
+    @Test
+    fun `refresh captures changed metrics without mutating the previous display`() {
+        val live = LinkMetrics(address = "test-peer", initiator = true)
+        live.l2capOpenAtMs = 1_000
+        live.establishedAtMs = 1_100
+        live.bytesIn = 100
+        val before = listOf(live.snapshot())
+
+        live.bytesIn = 500
+        live.bytesOut = 200
+        live.syncDoneAtMs = 1_500
+        val after = listOf(live.snapshot())
+
+        assertNotEquals(before, after)
+        assertEquals(100L, before.single().bytesIn)
+        assertEquals(0L, before.single().syncDoneAtMs)
+        assertEquals(500L, after.single().bytesIn)
+        assertEquals(200L, after.single().bytesOut)
+        assertEquals(400L, after.single().phases().toMap()["established->sync_done"])
+        assertEquals(after, listOf(live.snapshot()))
+    }
 
     @Test
     fun `records are single stable lines in field order`() {

@@ -85,6 +85,7 @@ fn is_silent(reason: &CloseReason) -> bool {
     matches!(
         reason,
         CloseReason::HandshakeFailed
+            | CloseReason::HandshakeTimeout
             | CloseReason::DecryptFailed
             | CloseReason::BadCiphertextLength
             | CloseReason::LifetimeExpired

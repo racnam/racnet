@@ -19,7 +19,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import org.racnet.android.metrics.LinkMetrics
+import org.racnet.android.metrics.LinkMetricsSnapshot
 import org.racnet.android.metrics.Meas
 
 /**
@@ -29,7 +29,7 @@ import org.racnet.android.metrics.Meas
  */
 @Composable
 fun DiagnosticsScreen(
-    metrics: List<LinkMetrics>,
+    metrics: List<LinkMetricsSnapshot>,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -72,7 +72,7 @@ fun DiagnosticsScreen(
 }
 
 /** One link's diagnostics as stable, transcribable text. */
-fun report(metrics: LinkMetrics): String = buildString {
+fun report(metrics: LinkMetricsSnapshot): String = buildString {
     append(metrics.address)
     append(if (metrics.initiator) " (dialed)" else " (accepted)")
     for ((label, ms) in metrics.phases()) {

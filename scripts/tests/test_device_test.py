@@ -75,6 +75,20 @@ class ReportingTests(unittest.TestCase):
         self.assertIsNone(metadata["installed_apk_sha256"])
         self.assertEqual(metadata["package_versions"], [])
 
+    def test_metadata_does_not_treat_another_profiles_install_as_owner_install(self):
+        device = module.Device("test")
+
+        def shell(*args):
+            if args == ("pm", "list", "packages", module.PACKAGE):
+                return "package:" + module.PACKAGE
+            if args[:2] == ("pm", "path"):
+                raise AssertionError("APK path must not be queried when absent in the owner profile")
+            return ""
+
+        device.shell = Mock(side_effect=shell)
+        self.assertIsNone(device.metadata()["installed_apk_sha256"])
+        device.shell.assert_any_call("pm", "list", "packages", "--user", "0", module.PACKAGE)
+
     def test_event_counts_are_diagnostic_not_fabricated_measurements(self):
         self.assertEqual(module.event_counts("x MEAS event=established link=1\n"
                                            "x MEAS event=sync_done bytes_in=100\n"
@@ -102,6 +116,44 @@ class ReportingTests(unittest.TestCase):
             session.report.update(status="passed", errors=["lost stream"])
             session.finish()
             self.assertEqual(session.report["status"], "incomplete")
+
+    def test_failed_logcat_start_closes_capture_file(self):
+        device = Mock(serial="test")
+        device.metadata.return_value = {}
+        with tempfile.TemporaryDirectory() as parent:
+            session = module.Session(Path(parent) / "run", [device], "capture", "test")
+            with patch.object(module.subprocess, "Popen", side_effect=OSError("cannot start")) as start:
+                with self.assertRaisesRegex(OSError, "cannot start"):
+                    session.start()
+            self.assertTrue(start.call_args.kwargs["stdout"].closed)
+            self.assertEqual(session.streams, [])
+
+    def test_logcat_shutdown_failure_does_not_skip_other_streams_or_report(self):
+        first, second = Mock(), Mock()
+        first.poll.return_value = second.poll.return_value = None
+        first.terminate.side_effect = OSError("cannot stop stream")
+        first_output, second_output = Mock(), Mock()
+        with tempfile.TemporaryDirectory() as parent:
+            session = module.Session(Path(parent) / "run", [], "capture", "test")
+            session.streams = [(first, first_output), (second, second_output)]
+            session.report["status"] = "captured_not_evaluated"
+            session.finish()
+            second.terminate.assert_called_once()
+            first_output.close.assert_called_once()
+            second_output.close.assert_called_once()
+            self.assertEqual(session.report["status"], "incomplete")
+            self.assertIn("incomplete", (session.folder / "SUMMARY.md").read_text())
+
+    def test_logcat_read_failure_does_not_skip_next_device_or_report(self):
+        devices = [Mock(serial="first"), Mock(serial="second")]
+        with tempfile.TemporaryDirectory() as parent:
+            session = module.Session(Path(parent) / "run", devices, "capture", "test")
+            (session.folder / "device-1" / "logcat.txt").mkdir(parents=True)
+            session.report["status"] = "captured_not_evaluated"
+            session.finish()
+            devices[1].snapshot.assert_called_once()
+            self.assertEqual(session.report["status"], "incomplete")
+            self.assertTrue(any(error.startswith("Logcat summary:") for error in session.report["errors"]))
 
 
 class PairOrchestrationTests(unittest.TestCase):
@@ -300,6 +352,59 @@ class ScenarioTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_post_preserves_changed_draft_without_pressing_post(self):
+        for draft in ("changed draft", "", "synthetic-and-more"):
+            with self.subTest(draft=draft):
+                device = module.Device("test")
+                device.draft = Mock(return_value=module.ET.Element("node", text=""))
+                device.shell = Mock()
+                root = module.ET.Element("hierarchy")
+                module.ET.SubElement(root, "node", {"class": "android.widget.EditText", "text": draft})
+                module.ET.SubElement(root, "node", {"text": "Post to board"})
+                device.ui = Mock(return_value=(root, ""))
+                device.tap = Mock()
+                with self.assertRaisesRegex(RuntimeError, "Draft changed"):
+                    device.post("synthetic")
+                device.tap.assert_called_once()
+
+    def test_post_accepts_only_exact_synthetic_draft(self):
+        device = module.Device("test")
+        device.draft = Mock(return_value=module.ET.Element("node", text=""))
+        device.shell = Mock()
+        root = module.ET.fromstring('<hierarchy><node class="android.widget.EditText" text="synthetic"/><node text="Post to board"/></hierarchy>')
+        device.ui = Mock(return_value=(root, ""))
+        device.tap = Mock()
+        device.wait_entry = Mock(return_value={"id": "entry"})
+        self.assertEqual(device.post("synthetic"), {"id": "entry"})
+        self.assertEqual(device.tap.call_count, 2)
+
+    def test_restart_preserves_unsent_draft(self):
+        device = module.Device("test")
+        device.draft = Mock(return_value=module.ET.Element("node", text="unsent draft"))
+        device.shell = Mock()
+        with self.assertRaisesRegex(RuntimeError, "Unsent draft"):
+            device.restart()
+        device.shell.assert_not_called()
+
+    def test_launch_rejects_non_owner_or_unknown_user_before_mutation(self):
+        device = module.Device("test")
+        for user in ("10", "", "unknown"):
+            with self.subTest(user=user):
+                device.shell = Mock(return_value=user)
+                with self.assertRaisesRegex(RuntimeError, "owner profile"):
+                    device.launch()
+                device.shell.assert_called_once_with("am", "get-current-user")
+
+    def test_prepare_pins_install_and_permissions_to_owner(self):
+        device = module.Device("test")
+        device.shell = Mock(side_effect=lambda *args: "35" if args[:1] == ("getprop",) else "0")
+        device.adb = Mock()
+        device.prepare(Path("test.apk"))
+        device.adb.assert_called_once_with("install", "--user", "0", "-r", "test.apk", timeout=120)
+        grants = [call.args for call in device.shell.call_args_list if call.args[:2] == ("pm", "grant")]
+        self.assertEqual(len(grants), 4)
+        self.assertTrue(all(args[2:5] == ("--user", "0", module.PACKAGE) for args in grants))
+
     def test_bluetooth_state_accepts_oem_label_capitalization(self):
         device = module.Device("test")
         for text, expected in (("Bluetooth Status\n  State:         ON\n", "ON"),
@@ -338,6 +443,7 @@ class ControlTests(unittest.TestCase):
         device = module.Device("test")
         device.bluetooth_state = Mock(side_effect=["ON", "OFF"])
         device.shell = Mock()
+        device.launch = Mock()
         node = '<hierarchy><node package="com.android.settings" resource-id="com.android.settings:id/switch_widget" checkable="true" checked="true" /></hierarchy>'
         device.raw_ui = Mock(return_value=(module.ET.fromstring(node), node))
         device.tap = Mock()
@@ -377,6 +483,14 @@ class ControlTests(unittest.TestCase):
                 with self.subTest(argv=argv), self.assertRaises(SystemExit):
                     module.main(argv)
             connected.assert_not_called()
+
+    def test_cli_rejects_other_profile_before_creating_or_starting_session(self):
+        with patch.object(module, "connected", return_value={"test": "device"}), \
+                patch.object(module.Device, "require_owner_user", side_effect=RuntimeError("owner profile required")), \
+                patch.object(module, "Session") as session:
+            with self.assertRaises(SystemExit):
+                module.main(["offline", "--serial", "test"])
+            session.assert_not_called()
 
     def test_output_guard_rejects_unignored_repository_path(self):
         with self.assertRaisesRegex(ValueError, "git-ignored"):

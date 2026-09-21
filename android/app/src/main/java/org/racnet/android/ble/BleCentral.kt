@@ -17,6 +17,7 @@ import android.os.ParcelUuid
 import android.os.SystemClock
 import android.util.Log
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -217,7 +218,7 @@ class BleCentral(
      * Returns null on any failure or timeout.
      */
     private suspend fun readPsm(device: BluetoothDevice, metrics: LinkMetrics): Int? {
-        val result = kotlinx.coroutines.CompletableDeferred<Int?>()
+        val result = CompletableDeferred<Int?>()
         var gatt: BluetoothGatt? = null
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
@@ -225,21 +226,19 @@ class BleCentral(
                     status != BluetoothGatt.GATT_SUCCESS -> result.complete(null)
                     newState == BluetoothProfile.STATE_CONNECTED -> {
                         metrics.gattConnectedAtMs = SystemClock.elapsedRealtime()
-                        if (!g.discoverServices()) result.complete(null)
+                        requestPsmReadStep(result) { g.discoverServices() }
                     }
                     newState == BluetoothProfile.STATE_DISCONNECTED -> result.complete(null)
                 }
             }
 
             override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-                val characteristic = g
-                    .getService(BleConstants.SERVICE_UUID)
-                    ?.getCharacteristic(BleConstants.PSM_CHARACTERISTIC_UUID)
-                if (status != BluetoothGatt.GATT_SUCCESS ||
-                    characteristic == null ||
-                    !g.readCharacteristic(characteristic)
-                ) {
-                    result.complete(null)
+                requestPsmReadStep(result) {
+                    val characteristic = g
+                        .getService(BleConstants.SERVICE_UUID)
+                        ?.getCharacteristic(BleConstants.PSM_CHARACTERISTIC_UUID)
+                    status == BluetoothGatt.GATT_SUCCESS &&
+                        characteristic != null && g.readCharacteristic(characteristic)
                 }
             }
 
@@ -264,6 +263,7 @@ class BleCentral(
         } catch (e: SecurityException) {
             null
         } finally {
+            result.cancel()
             // §9.1.3: the GATT connection closes before the channel opens.
             try {
                 gatt?.close()
@@ -276,5 +276,15 @@ class BleCentral(
     private companion object {
         const val TAG = "RacnetCentral"
         const val GATT_TIMEOUT_MS = 10_000L
+    }
+}
+
+/** Binder callbacks cannot propagate permission failures to readPsm's caller. */
+internal fun requestPsmReadStep(result: CompletableDeferred<Int?>, operation: () -> Boolean) {
+    if (result.isCompleted) return
+    try {
+        if (!operation()) result.complete(null)
+    } catch (e: SecurityException) {
+        result.complete(null)
     }
 }

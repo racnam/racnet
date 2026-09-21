@@ -33,11 +33,20 @@ interface LinkTransport {
     fun writeFrames(frames: List<ByteArray>)
 
     /**
+     * Record authenticated establishment synchronously, including duplicate
+     * resolution. Called under the runtime mutex: do not re-enter the runtime
+     * synchronously; teardown may use [NodeRuntime.onTransportClosedAsync].
+     */
+    fun onEstablished(remoteFingerprint: ByteArray)
+
+    /**
      * The core closed the link (terminal). The transport tears its
      * connection down; it must not call back into the runtime for this
      * link beyond an idempotent [NodeRuntime.onTransportClosed].
+     * Drain previously queued writes only when this output carried final
+     * frames; silent closes must discard pending output immediately.
      */
-    fun closeFromCore(cause: CloseCause)
+    fun closeFromCore(cause: CloseCause, drainWrites: Boolean)
 }
 
 /**
@@ -70,18 +79,23 @@ class NodeRuntime(
 
     // Correctness-bearing state (transports, establishedLinks, the core
     // itself) is updated synchronously in dispatchEvents; this flow only
-    // feeds the UI, the registry's peer view, and the measurement log,
-    // where dropping under a persistent 1024-event backlog is the least
-    // bad failure mode.
+    // feeds UI diagnostics and the measurement log. Registry establishment
+    // and duplicate resolution use the synchronous transport callback so
+    // they cannot disappear when observers are absent or fall behind.
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 1024)
 
-    /** Every core event, in order, for UI and metrics. */
+    /** Best-effort core events for UI and metrics; never a lifecycle channel. */
     val events: SharedFlow<Event> = _events
 
     private val _entryCount = MutableStateFlow(node.entryCount())
 
     /** Live entry count for the notification and UI. */
     val entryCount: StateFlow<ULong> = _entryCount
+
+    private val _receiveFailure = MutableStateFlow<CloseCause.ProtocolViolation?>(null)
+
+    /** Local storage/resource failure, retained until a new mesh attempt. */
+    val receiveFailure: StateFlow<CloseCause.ProtocolViolation?> = _receiveFailure
 
     val authorKey: ByteArray = node.authorKey()
 
@@ -90,6 +104,11 @@ class NodeRuntime(
 
     /** Microseconds on the monotonic, sleep-counting clock. */
     fun nowUs(): ULong = monotonicUs()
+
+    /** A new mesh attempt clears the previous attempt's receive warning. */
+    suspend fun clearReceiveFailure() = lock.withLock {
+        _receiveFailure.value = null
+    }
 
     /**
      * We opened the transport connection (BLE central): Noise initiator.
@@ -178,20 +197,25 @@ class NodeRuntime(
         if (io.frames.isNotEmpty()) {
             transports[linkId]?.writeFrames(io.frames)
         }
-        dispatchEvents(io.events)
+        dispatchEvents(io.events, if (io.frames.isEmpty()) emptySet() else setOf(linkId))
     }
 
-    private fun dispatchEvents(events: List<Event>) {
+    private fun dispatchEvents(events: List<Event>, finalFrameLinks: Set<ULong> = emptySet()) {
         for (event in events) {
             when (event) {
                 is Event.Established -> {
                     establishedLinks.add(event.linkId)
+                    transports[event.linkId]?.onEstablished(event.remoteFingerprint)
                     syncScheduler.request(event.linkId)
                 }
                 is Event.Closed -> {
+                    val cause = event.cause
+                    if (cause is CloseCause.ProtocolViolation && (cause.code == 4uL || cause.code == 5uL)) {
+                        _receiveFailure.value = cause
+                    }
                     establishedLinks.remove(event.linkId)
                     syncScheduler.closed(event.linkId)
-                    transports.remove(event.linkId)?.closeFromCore(event.cause)
+                    transports.remove(event.linkId)?.closeFromCore(event.cause, event.linkId in finalFrameLinks)
                 }
                 is Event.EntryStored -> {
                     _entryCount.value = node.entryCount()
@@ -218,6 +242,7 @@ class NodeRuntime(
      */
     private fun drainSyncsLocked() {
         val events = mutableListOf<Event>()
+        val finalFrameLinks = mutableSetOf<ULong>()
         syncScheduler.drain { linkId ->
             val start = try {
                 node.startSync(linkId, SyncWindow(sinceMs = 0uL, untilMs = ULong.MAX_VALUE))
@@ -225,9 +250,10 @@ class NodeRuntime(
                 return@drain null
             }
             transports[linkId]?.writeFrames(start.io.frames)
+            if (start.io.frames.isNotEmpty()) finalFrameLinks.add(linkId)
             events.addAll(start.io.events)
             start.sessionId
         }
-        if (events.isNotEmpty()) dispatchEvents(events)
+        if (events.isNotEmpty()) dispatchEvents(events, finalFrameLinks)
     }
 }

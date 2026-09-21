@@ -64,6 +64,28 @@ fn entries_and_identity_survive_restart_and_exclusive_writer_is_enforced() {
 }
 
 #[test]
+fn interrupted_initial_headers_recover_but_corruption_is_preserved() {
+    let temp = Temp::new();
+    let magic = b"RACNET01";
+    for end in 0..magic.len() {
+        fs::write(temp.path(), &magic[..end]).unwrap();
+        let node = temp.node();
+        assert_eq!(node.entry_count(), 0);
+        assert_eq!(fs::read(temp.path()).unwrap(), magic);
+        node.create_entry(1, b"after recovery".to_vec(), 1).unwrap();
+        drop(node);
+        assert_eq!(temp.node().entry_count(), 1);
+    }
+    for end in 1..magic.len() {
+        let mut corrupt = magic[..end].to_vec();
+        corrupt[end - 1] ^= 1;
+        fs::write(temp.path(), &corrupt).unwrap();
+        assert!(EntryStore::open(&temp.path()).is_err());
+        assert_eq!(fs::read(temp.path()).unwrap(), corrupt);
+    }
+}
+
+#[test]
 fn every_incomplete_record_tail_recovers_without_losing_prior_messages() {
     let temp = Temp::new();
     let node = temp.node();

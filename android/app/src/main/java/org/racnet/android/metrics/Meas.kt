@@ -39,17 +39,38 @@ object Meas {
  * `SystemClock.elapsedRealtime()` milliseconds.
  */
 class LinkMetrics(val address: String, val initiator: Boolean) {
-    var scanFoundAtMs: Long = 0
-    var gattConnectedAtMs: Long = 0
-    var psmReadAtMs: Long = 0
-    var l2capOpenAtMs: Long = 0
-    var establishedAtMs: Long = 0
-    var syncDoneAtMs: Long = 0
+    @Volatile var scanFoundAtMs: Long = 0
+    @Volatile var gattConnectedAtMs: Long = 0
+    @Volatile var psmReadAtMs: Long = 0
+    @Volatile var l2capOpenAtMs: Long = 0
+    @Volatile var establishedAtMs: Long = 0
+    @Volatile var syncDoneAtMs: Long = 0
 
     @Volatile var bytesIn: Long = 0
 
     @Volatile var bytesOut: Long = 0
 
+    fun snapshot(): LinkMetricsSnapshot = LinkMetricsSnapshot(
+        address, initiator, scanFoundAtMs, gattConnectedAtMs, psmReadAtMs,
+        l2capOpenAtMs, establishedAtMs, syncDoneAtMs, bytesIn, bytesOut,
+    )
+
+    fun phases(): List<Pair<String, Long>> = snapshot().phases()
+}
+
+/** Stable values for a diagnostics refresh, independent of live counter updates. */
+data class LinkMetricsSnapshot(
+    val address: String,
+    val initiator: Boolean,
+    val scanFoundAtMs: Long,
+    val gattConnectedAtMs: Long,
+    val psmReadAtMs: Long,
+    val l2capOpenAtMs: Long,
+    val establishedAtMs: Long,
+    val syncDoneAtMs: Long,
+    val bytesIn: Long,
+    val bytesOut: Long,
+) {
     /** The phase deltas as ordered (label, milliseconds) rows. */
     fun phases(): List<Pair<String, Long>> = buildList {
         fun delta(label: String, from: Long, to: Long) {

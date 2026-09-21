@@ -228,6 +228,28 @@ fn limiter_refuses_the_fourth_burst_accept_and_times_out_half_open() {
 }
 
 #[test]
+fn both_roles_report_the_half_open_timeout_once() {
+    let node = Node::new(identity(1)).unwrap();
+    let outgoing = node.connect(0).unwrap();
+    let incoming = node.accept(b"peer".to_vec(), 0).unwrap().unwrap();
+    assert!(node.tick(29_999_999).is_empty());
+    let events = node.tick(30_000_000);
+    assert_eq!(events.len(), 2);
+    for link_id in [outgoing.link_id, incoming.link_id] {
+        assert!(events.contains(&Event::Closed {
+            link_id,
+            cause: CloseCause::HandshakeTimeout,
+        }));
+        assert!(node.link_status(link_id).is_none());
+    }
+    assert!(node.tick(30_000_001).is_empty());
+    assert!(node
+        .accept(b"another".to_vec(), 30_000_001)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
 fn transport_close_mid_handshake_frees_the_half_open_slot() {
     let b = Node::new(identity(0x22)).unwrap();
     // Fill the global half-open cap from distinct addresses.

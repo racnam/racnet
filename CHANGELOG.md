@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Expire silent handshakes, preserve notifications for entries committed before
+  a later sync failure, and make outbound protocol errors terminal.
+- Recover interrupted initial journal headers without accepting corrupt
+  headers; reject oversized padding inputs without arithmetic overflow.
+- Discard queued simulator traffic from a previous connection on reconnect.
+- Retain pending Android saves across rotation/navigation, preserve newer
+  drafts, and return to permission onboarding when required grants are missing.
+- Deliver peer establishment and receive-failure state independently of
+  diagnostic observers; drain final error frames with a bounded socket-close
+  deadline while preserving immediate silent teardown.
+- Handle Bluetooth permission revocation during GATT reads, repair teardown
+  races during registration, and snapshot diagnostics state immutably.
+- Protect drafts and profile selection in device automation, finish evidence
+  cleanup after individual failures, and keep raw CI evidence out of artifacts.
+- Select the correct host library for Kotlin tests on Linux and macOS, and
+  run conformance builds from the repository root.
 - Coalesce reconciliation requests and retry refusals; relay received entries
   to other connected peers instead of waiting for another connection.
 - Bound queued socket output; close sockets during cancellation and connect

@@ -47,6 +47,11 @@ range, third-hop relay on real radios, or a security review.
 
 Python 3, `adb`, and Git are needed. From the repository root:
 
+Automated scenarios currently support only the primary system user on each
+phone. They stop before installation, data reads, or UI changes when another
+profile is active. This prevents running the UI in one profile while reading
+another profile's app storage. Inventory remains available for any profile.
+
 ```sh
 # Read-only: show connected/unauthorized devices.
 python3 scripts/device_test.py inventory
@@ -123,7 +128,8 @@ Each run creates an ignored `test-runs/<UTC-time>-<id>/` directory:
 
 Screenshots/XML can include board messages and device identifiers. Evidence
 stays local and is excluded from git. Review/redact it before sharing. No logs
-are uploaded by this script. CI uploads only its own disposable emulator data.
+are uploaded by this script. CI does not upload raw evidence bundles, including
+emulator captures; its debug APK remains a build artifact.
 Custom `--output` directories inside the checkout must also be ignored and
 untracked; the runner rejects other repository destinations before writing.
 An output directory outside the checkout remains private evidence and must not

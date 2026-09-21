@@ -2,12 +2,13 @@
 
 An offline-first, infrastructure-free peer-to-peer **sync substrate** for consumer phones. No servers, no towers, no ISP — the mesh is the people carrying it.
 
-**Status: Android preview; hardware acceptance pending.** Android now has a
+**Status: Android preview; foreground phone checks passed.** Android now has a
 public nearby message board, durable signed entries, and automatic BLE sync
 and relay. Messages can be written offline and survive process restarts.
-The Rust core is tested through simulated transports and the Android runtime;
-real-device Bluetooth behavior, background survival, throughput, and range
-remain unverified. iOS is still a scaffold. This is a sideload preview, not
+The Rust core is tested through simulated transports and the Android runtime.
+Two-phone transfer, persistence, reconnect, and controlled Bluetooth recovery
+have passed; background survival, throughput, and range remain unverified.
+iOS is still a scaffold. This is a sideload preview, not
 an audited or public-store release.
 
 ## Try the Android preview
@@ -44,7 +45,11 @@ The design goal that separates it from existing BLE mesh messengers: a wire prot
 
 **Governing principle:** connectivity is opportunistic, never guaranteed. Every feature must degrade to "syncs eventually, when two phones happen to be near each other." BLE-only correctness first; every faster radio is an optimization.
 
-## Architecture
+## Architecture roadmap
+
+The diagram includes future layers. The implemented preview consists of signed
+entry storage, reconciliation, Noise sessions, Android BLE, and a public board.
+Directed routing, chunk transfer, fast radios, and mesh sites remain roadmap work.
 
 ```
 App          Chat | Mesh sites | File sharing | Local boards
@@ -56,13 +61,17 @@ Mesh         Dual-role discovery, topology, store-carry-forward routing
 Radio        BLE 5 / BLE Coded PHY / AWDL / NAN
 ```
 
-One Rust core (`core/`) implements protocol, sync, storage, crypto, and routing. UniFFI generates Swift and Kotlin bindings; the iOS and Android apps are native UI plus thin platform transport shims. The same core powers a Linux anchor-node daemon (`anchor/`).
+One Rust core (`core/`) implements protocol, sync, storage, and crypto. UniFFI
+generates Swift and Kotlin bindings. Android hosts the runtime and BLE adapter;
+iOS and the Linux anchor are currently scaffolds. See the
+[architecture review](docs/ARCHITECTURE-REVIEW.md) for the path from this preview
+to the broader substrate and [M5 plan](docs/M5-IOS-PLAN.md) for iOS preparation.
 
 ## Repository layout
 
 ```
-core/           Rust core: protocol, sync, storage, crypto, routing
-anchor/         Linux anchor-node daemon (same core, no background limits)
+core/           Rust core: protocol, sync, storage, crypto
+anchor/         Linux scaffold; full anchor daemon is milestone 9
 uniffi-bindgen/ Binding-generator binary for the workspace
 bindings/       Swift XCFramework + Kotlin/JNI build scripts
 ios/            SwiftUI app (project generated with XcodeGen)
@@ -86,7 +95,7 @@ bindings/swift/build-xcframework.sh && cd ios && xcodegen && xcodebuild -scheme 
 
 ## Honest limitations
 
-- **iOS background sync will never be reliable.** iOS grants ~10-second wake windows for BLE events from known peers; the design works within that, but expectation-setting is part of the UX, not a bug to fix.
+- **Background delivery is conditional.** Android unplugged/background acceptance remains pending. iOS has no transport implementation yet; its discovery and restoration restrictions are explicit in the [M5 plan](docs/M5-IOS-PLAN.md).
 - **BLE is slow.** ~200 Kbps usable single-hop is the planning estimate; multi-hop divides it. Large files move at walking pace across a mesh, by design.
 - **iOS↔Android bulk transfer has no fast path.** AWDL and WiFi Aware are mutually incompatible; cross-platform hops fall back to BLE.
 - **Nothing has been security-reviewed.** No external audit has been performed. Do not rely on this project for safety-critical communication, and treat every security property as unverified until an external review is completed. The current [threat model](docs/THREAT-MODEL.md) documents controls and unresolved risks.

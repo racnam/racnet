@@ -85,6 +85,27 @@ Rust 1.98 Clippy fixes preserve the wire format and algorithm. The pinned
 Negentropy reference checkout now lives outside the Rust build cache and can
 recover missing Git objects; local conformance and randomized checks passed too.
 
+## Correctness audit, 2026-09-21
+
+The current source passed 177 Rust workspace tests, 160 mobile-configuration
+tests, formatting, Clippy with warnings denied, and the anchor smoke run.
+Negentropy reference conformance and randomized interoperability checks passed,
+as did all three parser fuzz targets in a 10-second-per-target smoke run.
+
+Android native libraries, generated bindings, lint, all 52 JVM tests and the
+debug APK build passed. Lint reports zero errors and six advisory warnings.
+The device runner's 42 Python tests passed. New regressions cover interrupted
+journal initialization, partial-push notifications, handshake expiry, retained
+draft/save state, reliable peer and receive-error state, and bounded final-frame
+draining. See [ARCHITECTURE-REVIEW.md](ARCHITECTURE-REVIEW.md) for the assessment
+of the foundation and the remaining product gaps.
+
+These checks do not refresh physical acceptance or establish iOS behavior.
+The newly built APK is at the standard build output path; the root preview
+copy and its hash above remain the earlier checkpoint. Repeat foreground
+phone checks after these transport and lifecycle changes before adopting the
+new build as the physical-testing baseline.
+
 ## Resume after a context reset
 
 Read `CLAUDE.md`, this handoff, `docs/PLAN.md`, and

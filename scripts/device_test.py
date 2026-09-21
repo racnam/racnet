@@ -105,13 +105,17 @@ class Device:
     def shell(self, *args, **kwargs):
         return self.adb("shell", shlex.join(args), **kwargs)
 
+    def require_owner_user(self):
+        if self.shell("am", "get-current-user") != "0":
+            raise RuntimeError("Automated tests require the Android owner profile; switch to it before testing")
+
     def metadata(self):
         props = {key: self.shell("getprop", key) for key in (
             "ro.product.manufacturer", "ro.product.model", "ro.build.version.release",
             "ro.build.version.sdk", "ro.build.fingerprint", "ro.kernel.qemu")}
         package = self.shell("dumpsys", "package", PACKAGE)
-        installed = "package:" + PACKAGE in self.shell("pm", "list", "packages", PACKAGE).splitlines()
-        apk_paths = self.shell("pm", "path", PACKAGE).splitlines() if installed else []
+        installed = "package:" + PACKAGE in self.shell("pm", "list", "packages", "--user", "0", PACKAGE).splitlines()
+        apk_paths = self.shell("pm", "path", "--user", "0", PACKAGE).splitlines() if installed else []
         apk_hash = None
         if apk_paths and apk_paths[0].startswith("package:"):
             apk_hash = self.shell("sha256sum", apk_paths[0].removeprefix("package:")).split()[0]
@@ -126,7 +130,8 @@ class Device:
                                      if "versionName=" in line or "versionCode=" in line]}
 
     def prepare(self, apk):
-        self.adb("install", "-r", str(apk), timeout=120)
+        self.require_owner_user()
+        self.adb("install", "--user", "0", "-r", str(apk), timeout=120)
         sdk = int(self.shell("getprop", "ro.build.version.sdk"))
         if sdk < 29:
             raise RuntimeError("Android 10 / API 29 or later required")
@@ -135,11 +140,12 @@ class Device:
         if sdk >= 33:
             permissions.append("POST_NOTIFICATIONS")
         for permission in permissions:
-            self.shell("pm", "grant", PACKAGE, "android.permission." + permission)
+            self.shell("pm", "grant", "--user", "0", PACKAGE, "android.permission." + permission)
         self.launch()
 
     def launch(self):
-        self.shell("am", "start", "-W", "-n", PACKAGE + "/.MainActivity")
+        self.require_owner_user()
+        self.shell("am", "start", "--user", "0", "-W", "-n", PACKAGE + "/.MainActivity")
 
     def raw_ui(self):
         self.shell("uiautomator", "dump", "/data/local/tmp/racnet-test-ui.xml", timeout=20)
@@ -320,6 +326,9 @@ class Device:
         self.shell("input", "text", marker)
         self.shell("input", "keyevent", "KEYCODE_BACK")
         root, _ = self.ui()  # Wait for keyboard dismissal before finding the button.
+        fields = [n for n in root.iter("node") if n.get("class") == "android.widget.EditText"]
+        if len(fields) != 1 or fields[0].get("text") != marker:
+            raise RuntimeError("Draft changed; preserving it instead of posting it")
         button = next((n for n in root.iter("node") if n.get("text") == "Post to board"), None)
         if button is None:
             raise RuntimeError("Post button unavailable")
@@ -327,7 +336,8 @@ class Device:
         return self.wait_entry(marker=marker, timeout=15)
 
     def restart(self):
-        self.shell("am", "force-stop", PACKAGE)
+        self.require_empty_draft()
+        self.shell("am", "force-stop", "--user", "0", PACKAGE)
         root = self.board()
         if not any(n.get("class") == "android.widget.EditText" for n in root.iter("node")):
             raise RuntimeError("App failed to reopen")
@@ -365,9 +375,13 @@ class Session:
             (directory / "device.json").write_text(json.dumps(metadata, indent=2) + "\n")
             since = device.shell("date", "+%m-%d %H:%M:%S.000")
             output = (directory / "logcat.txt").open("wb")
-            process = subprocess.Popen(["adb", "-s", device.serial, "logcat", "-v", "epoch", "-T", since,
-                                        "RacnetMeas:I", "RacnetCentral:I", "RacnetPeripheral:I", "*:S"],
-                                       stdout=output, stderr=subprocess.STDOUT)
+            try:
+                process = subprocess.Popen(["adb", "-s", device.serial, "logcat", "-v", "epoch", "-T", since,
+                                            "RacnetMeas:I", "RacnetCentral:I", "RacnetPeripheral:I", "*:S"],
+                                           stdout=output, stderr=subprocess.STDOUT)
+            except BaseException:
+                output.close()
+                raise
             self.streams.append((process, output))
             self.save()
 
@@ -393,15 +407,22 @@ class Session:
 
     def finish(self):
         for process, output in self.streams:
-            if process.poll() is not None:
-                self.report["errors"].append("Logcat stream exited before capture finished")
-            process.terminate()
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-            output.close()
+                if process.poll() is not None:
+                    self.report["errors"].append("Logcat stream exited before capture finished")
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            except Exception as error:
+                self.report["errors"].append(f"Logcat shutdown: {error}")
+            finally:
+                try:
+                    output.close()
+                except Exception as error:
+                    self.report["errors"].append(f"Logcat file closure: {error}")
         for index, device in enumerate(self.devices):
             directory = self.folder / f"device-{index + 1}"
             try:
@@ -409,8 +430,11 @@ class Session:
             except Exception as error:
                 self.report["errors"].append(f"Snapshot {device.serial}: {error}")
             log = directory / "logcat.txt"
-            if log.exists():
-                (directory / "events.json").write_text(json.dumps(event_counts(log.read_text(errors="replace")), indent=2) + "\n")
+            try:
+                if log.exists():
+                    (directory / "events.json").write_text(json.dumps(event_counts(log.read_text(errors="replace")), indent=2) + "\n")
+            except Exception as error:
+                self.report["errors"].append(f"Logcat summary: {error}")
         self.report["evidence_complete"] = not self.report["errors"]
         if self.report["errors"] and self.report["status"] in ("passed", "prepared", "captured_not_evaluated"):
             self.report["status"] = "incomplete"
@@ -580,6 +604,11 @@ def main(argv=None):
         if available.get(serial) != "device":
             parser.error(f"{serial}: {available.get(serial, 'not connected')}; connect/unlock and accept USB debugging")
     devices = [Device(serial) for serial in args.serial]
+    try:
+        for device in devices:
+            device.require_owner_user()
+    except RuntimeError as error:
+        parser.error(str(error))
     folder = args.output or ROOT / "test-runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
     try:
         validate_output(folder)

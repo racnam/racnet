@@ -2,7 +2,8 @@
 
 Status: engineering threat model, not an external audit or a security claim.
 Scope: the current Rust core and Android public board, wire spec 0.2.0.
-Hardware acceptance is still pending. Stronger safety-critical use and public
+Foreground phone results are recorded in MEASUREMENTS.md; remaining hardware
+acceptance is still pending. Stronger safety-critical use and public
 launch remain blocked on the review and policy decisions described below.
 
 ## Assets and boundaries
@@ -34,7 +35,7 @@ launch remain blocked on the review and policy decisions described below.
 | Storage/memory exhaustion | Persistent journal limited to 64 MiB/10,000 entries; bounded link write queue; handshake/session limits | Attackers can fill storage or consume battery/CPU; no fair-share admission, quotas per author, or comprehensive availability guarantee |
 | Interrupted writes/corrupt files | Flush before indexing, journal locking, incomplete-tail recovery, signature validation on reload | A complete corrupt record stops startup; no automatic repair or backup; filesystem/device compromise can remove data |
 | Message interception after relay | Publicness disclosed in the UI | Every recipient can read/copy/relay posts; no end-to-end private messaging or remote deletion |
-| OS kills/background limits | Foreground service, persisted entries, reconnect reconciliation | OEM radio/battery behavior remains unvalidated; eventual contact and delivery are not guaranteed |
+| OS kills/background limits | Foreground service, persisted entries, reconnect reconciliation | Foreground checks have passed on the recorded device pair; unplugged background behavior remains unvalidated and delivery is not guaranteed |
 | Malicious display content | Plain text display, bounded UTF-8 board payload, no active web renderer | Offensive/deceptive text remains possible; the core accepts valid signed opaque entries even when the board hides their kind |
 | Supply-chain/build compromise | Dependency lockfile, tests, conformance/interoperability checks, CI | Custom protocol/crypto code and build dependencies have not been independently audited |
 

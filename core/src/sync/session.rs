@@ -164,27 +164,48 @@ impl Syncer {
     /// RECON_MSG, or RECON_DONE.
     ///
     /// On error the caller reports [`SyncError::error_code`] per §7 and
-    /// closes the link.
+    /// closes the link. A push can have stored earlier entries before a
+    /// later entry fails; use [`Self::handle_message_into`] to retain those
+    /// entries' notifications even on failure.
     pub fn handle_message(
         &mut self,
         store: &mut EntryStore,
         msg: &Message,
     ) -> Result<SyncOutput, SyncError> {
-        match msg {
-            Message::GossipPush(push) => self.handle_push(store, push),
+        let mut output = SyncOutput::default();
+        self.handle_message_into(store, msg, &mut output)?;
+        Ok(output)
+    }
+
+    /// Handles a message, appending output as effects commit. On failure,
+    /// already stored entries remain in `output.events`; surface them before
+    /// reporting the terminal error and closing the link.
+    pub fn handle_message_into(
+        &mut self,
+        store: &mut EntryStore,
+        msg: &Message,
+        output: &mut SyncOutput,
+    ) -> Result<(), SyncError> {
+        if let Message::GossipPush(push) = msg {
+            return self.handle_push(store, push, output);
+        }
+        let next = match msg {
             Message::ReconInit(init) => self.handle_init(store, init),
             Message::ReconMsg(rm) => self.handle_recon_msg(store, rm),
             Message::ReconDone(done) => self.handle_done(done),
             _ => Err(SyncError::Violation("message type not for the sync layer")),
-        }
+        }?;
+        output.replies.extend(next.replies);
+        output.events.extend(next.events);
+        Ok(())
     }
 
     fn handle_push(
         &mut self,
         store: &mut EntryStore,
         push: &GossipPush,
-    ) -> Result<SyncOutput, SyncError> {
-        let mut output = SyncOutput::default();
+        output: &mut SyncOutput,
+    ) -> Result<(), SyncError> {
         for entry in &push.entries {
             let id = entry.id();
             match store.insert(entry.clone()) {
@@ -202,7 +223,7 @@ impl Syncer {
                 }
             }
         }
-        Ok(output)
+        Ok(())
     }
 
     fn handle_init(

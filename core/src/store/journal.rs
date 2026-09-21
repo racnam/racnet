@@ -56,7 +56,15 @@ impl Journal {
         if len > MAX_BYTES {
             return Err(StoreError::Capacity);
         }
-        if len == 0 {
+        if len < MAGIC.len() as u64 {
+            // Initial creation can stop partway through writing the header.
+            // Recover only an exact prefix; preserve any other corruption.
+            let mut prefix = vec![0; len as usize];
+            file.read_exact(&mut prefix).map_err(io)?;
+            if prefix != MAGIC[..len as usize] {
+                return Err(io("unrecognized entry journal"));
+            }
+            file.seek(SeekFrom::Start(0)).map_err(io)?;
             file.write_all(MAGIC).map_err(io)?;
             file.sync_all().map_err(io)?;
             // Persist the new directory entry as well as the file contents.

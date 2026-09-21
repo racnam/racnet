@@ -253,6 +253,7 @@ fn close_cause(reason: &CloseReason) -> CloseCause {
     match reason {
         CloseReason::VersionIncompatible => CloseCause::VersionIncompatible,
         CloseReason::HandshakeFailed => CloseCause::HandshakeFailed,
+        CloseReason::HandshakeTimeout => CloseCause::HandshakeTimeout,
         CloseReason::BadCiphertextLength => CloseCause::BadCiphertextLength,
         CloseReason::DecryptFailed => CloseCause::DecryptFailed,
         CloseReason::ProtocolViolation(code) => CloseCause::ProtocolViolation { code: *code },

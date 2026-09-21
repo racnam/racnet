@@ -15,7 +15,7 @@
 
 use crate::noise::{Fingerprint, HandshakeState, Keypair, NoiseError, Role, TransportState};
 use crate::store::EntryStore;
-use crate::sync::{LinkRole, SyncConfig, SyncError, SyncEvent, Syncer};
+use crate::sync::{LinkRole, SyncConfig, SyncError, SyncEvent, SyncOutput, Syncer};
 use crate::wire::{
     decode_message, encode_message, is_padded_len, ErrorMsg, FrameDecoder, Handshake, Hello,
     Message, MsgType, WIRE_VERSION,
@@ -38,6 +38,8 @@ pub struct LinkDriverConfig {
     pub transports: Vec<u64>,
     /// Session lifetime cap; enforced by `on_bytes`/`on_tick` (§4.3).
     pub max_lifetime_us: u64,
+    /// Maximum time to complete either role's handshake (§4.5).
+    pub handshake_timeout_us: u64,
     /// Configuration for the owned [`Syncer`].
     pub sync: SyncConfig,
 }
@@ -49,6 +51,7 @@ impl Default for LinkDriverConfig {
             features: 0,
             transports: vec![1],
             max_lifetime_us: MAX_LIFETIME_US,
+            handshake_timeout_us: 30_000_000,
             sync: SyncConfig::default(),
         }
     }
@@ -63,14 +66,16 @@ pub enum CloseReason {
     /// The cleartext epoch went wrong: bad frame, wrong message type or
     /// state, or a failed handshake step. Closed silently.
     HandshakeFailed,
+    /// The half-open handshake exceeded its local time budget (§4.5).
+    HandshakeTimeout,
     /// A transport-epoch body failed the pre-decryption length gate
     /// (§1.1). Closed silently.
     BadCiphertextLength,
     /// Transport-message decryption or authentication failed (§4.4).
     /// Closed silently.
     DecryptFailed,
-    /// The peer broke a rule inside the transport epoch; an encrypted
-    /// ERROR with the given code was sent (§7).
+    /// This node terminated the transport epoch with an encrypted ERROR
+    /// carrying the given code (§7).
     ProtocolViolation(u64),
     /// The peer sent ERROR with this code; the link is closed (§7).
     PeerError(u64),
@@ -215,7 +220,7 @@ impl LinkDriver {
     /// and events, in order. A closed driver returns empty output.
     pub fn on_bytes(&mut self, store: &mut EntryStore, bytes: &[u8], now_us: u64) -> LinkOutput {
         let mut out = LinkOutput::default();
-        if self.lifetime_expired(now_us, &mut out) {
+        if self.check_timeouts(now_us, &mut out) {
             return out;
         }
         if matches!(self.state, LinkState::Closed(_)) {
@@ -231,10 +236,10 @@ impl LinkDriver {
         out
     }
 
-    /// Time-only advancement: enforces the §4.3 lifetime cap.
+    /// Time-only advancement: enforces the handshake and lifetime caps.
     pub fn on_tick(&mut self, now_us: u64) -> LinkOutput {
         let mut out = LinkOutput::default();
-        self.lifetime_expired(now_us, &mut out);
+        self.check_timeouts(now_us, &mut out);
         out
     }
 
@@ -264,12 +269,26 @@ impl LinkDriver {
             return Err(LinkError::NotPermitted);
         }
         let mut out = LinkOutput::default();
+        if let Message::Error(error) = msg {
+            self.close_with_error(
+                error.code,
+                CloseReason::ProtocolViolation(error.code),
+                &mut out,
+            );
+            return Ok(out);
+        }
         self.queue_encrypted(msg, &mut out);
         Ok(out)
     }
 
-    fn lifetime_expired(&mut self, now_us: u64, out: &mut LinkOutput) -> bool {
+    fn check_timeouts(&mut self, now_us: u64, out: &mut LinkOutput) -> bool {
         if matches!(self.state, LinkState::Closed(_)) {
+            return true;
+        }
+        if !self.is_established()
+            && now_us.saturating_sub(self.opened_at_us) >= self.config.handshake_timeout_us
+        {
+            self.close_silently(CloseReason::HandshakeTimeout, out);
             return true;
         }
         if now_us.saturating_sub(self.opened_at_us) >= self.config.max_lifetime_us {
@@ -488,22 +507,26 @@ impl LinkDriver {
             Message::Error(err) => {
                 self.close_silently(CloseReason::PeerError(err.code), out);
             }
-            msg => match self.syncer.handle_message(store, &msg) {
-                Ok(output) => {
-                    for reply in &output.replies {
-                        self.queue_encrypted(reply, out);
-                        if matches!(self.state, LinkState::Closed(_)) {
-                            return;
+            msg => {
+                let mut output = SyncOutput::default();
+                let result = self.syncer.handle_message_into(store, &msg, &mut output);
+                out.events
+                    .extend(output.events.into_iter().map(LinkEvent::Sync));
+                match result {
+                    Ok(()) => {
+                        for reply in &output.replies {
+                            self.queue_encrypted(reply, out);
+                            if matches!(self.state, LinkState::Closed(_)) {
+                                return;
+                            }
                         }
                     }
-                    out.events
-                        .extend(output.events.into_iter().map(LinkEvent::Sync));
+                    Err(err) => {
+                        let code = u64::from(err.error_code());
+                        self.close_with_error(code, CloseReason::ProtocolViolation(code), out);
+                    }
                 }
-                Err(err) => {
-                    let code = u64::from(err.error_code());
-                    self.close_with_error(code, CloseReason::ProtocolViolation(code), out);
-                }
-            },
+            }
         }
     }
 
@@ -704,6 +727,76 @@ mod tests {
             vec![LinkEvent::Closed(CloseReason::LifetimeExpired)]
         );
         assert_eq!(i.close_reason(), Some(&CloseReason::LifetimeExpired));
+    }
+
+    #[test]
+    fn either_handshake_role_times_out_and_rejects_late_bytes() {
+        for role in [LinkRole::Initiator, LinkRole::Responder] {
+            let mut link = driver(role);
+            let mut store = EntryStore::new();
+            link.start();
+            assert!(link.on_tick(29_999_999).events.is_empty());
+            let out = link.on_bytes(&mut store, &hello_frame(vec![1]), 30_000_000);
+            assert!(out.frames.is_empty());
+            assert_eq!(
+                out.events,
+                vec![LinkEvent::Closed(CloseReason::HandshakeTimeout)]
+            );
+            assert!(link.on_tick(30_000_001).events.is_empty());
+            assert!(link
+                .on_bytes(&mut store, &hello_frame(vec![1]), 30_000_002)
+                .events
+                .is_empty());
+        }
+        let (mut initiator, mut responder, _, _) = established();
+        assert!(initiator.on_tick(30_000_000).events.is_empty());
+        assert!(responder.on_tick(30_000_000).events.is_empty());
+    }
+
+    #[test]
+    fn sending_error_terminates_both_ends() {
+        let (mut i, mut r, _, mut r_store) = established();
+        let error = Message::Error(ErrorMsg { code: 5 });
+        let out = i.send(&error).unwrap();
+        assert_eq!(out.frames.len(), 1);
+        assert_eq!(
+            out.events,
+            vec![LinkEvent::Closed(CloseReason::ProtocolViolation(5))]
+        );
+        assert!(!i.is_established());
+        assert_eq!(i.send(&error).unwrap_err(), LinkError::NotEstablished);
+        let received = r.on_bytes(&mut r_store, &out.frames[0], 0);
+        assert!(received.frames.is_empty());
+        assert_eq!(
+            received.events,
+            vec![LinkEvent::Closed(CloseReason::PeerError(5))]
+        );
+    }
+
+    #[test]
+    fn partial_push_reports_committed_entries_before_terminal_error() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[1; 32]);
+        let valid = crate::wire::Entry::sign(&key, 7, 0, b"valid".to_vec());
+        let mut invalid = crate::wire::Entry::sign(&key, 8, 0, b"invalid".to_vec());
+        invalid.sig[0] ^= 1;
+        let (mut i, mut r, _, mut r_store) = established();
+        let out = i
+            .send(&Message::GossipPush(GossipPush {
+                entries: vec![valid.clone(), invalid],
+                ttl: 0,
+            }))
+            .unwrap();
+        let received = r.on_bytes(&mut r_store, &out.frames[0], 0);
+        assert!(r_store.contains(&valid.id()));
+        assert_eq!(r_store.len(), 1);
+        assert_eq!(
+            received.events,
+            vec![
+                LinkEvent::Sync(SyncEvent::Stored(valid.id())),
+                LinkEvent::Closed(CloseReason::ProtocolViolation(1)),
+            ]
+        );
+        assert_eq!(received.frames.len(), 1, "encrypted terminal error");
     }
 
     #[test]

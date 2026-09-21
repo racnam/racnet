@@ -18,9 +18,10 @@ as checkout commit: a checkout alone does not prove which APK was installed.
 Keep physical-device logs/screenshots in an ignored local directory. A capture
 alone is not a test pass; missing evidence is explicit. Do not automatically
 write MEASUREMENTS.md. Physical context and hardware versus emulator status
-must be reviewed before promoting results. CI uploads only disposable emulator
-evidence, with offline app smoke coverage on the minimum API 29 and target API
-35. The emulator-runner CI action supplies emulator lifecycle/KVM setup; it
+must be reviewed before promoting results. CI runs offline app smoke coverage
+on the minimum API 29 and target API 35, but does not upload raw device logs,
+screenshots, UI dumps, or evidence bundles, including emulator captures.
+The debug APK remains a build artifact. The emulator-runner CI action supplies emulator lifecycle/KVM setup; it
 adds no app/core runtime dependency. Python uses only its standard library.
 
 ## Controlled regression scenarios

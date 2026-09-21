@@ -29,7 +29,7 @@ import uniffi.racnet_core.Event
 /**
  * The foreground service keeping the mesh alive: dual-role BLE (both
  * roles at once, §9.1.1), the core tick loop, event wiring into the
- * registry and the measurement log, and a persistent notification whose
+ * measurement log, and a persistent notification whose
  * content is the mesh status (ADR-0016).
  */
 class MeshService : LifecycleService() {
@@ -76,9 +76,11 @@ class MeshService : LifecycleService() {
                     fail(app.startupError.value ?: "Local data is unavailable.")
                     return@launch
                 }
+                app.nodeRuntime.clearReceiveFailure()
                 peripheral = BlePeripheral(this@MeshService, app.nodeRuntime, app.connectionRegistry, ::fail)
                 central = BleCentral(this@MeshService, app.nodeRuntime, app.connectionRegistry, onFailure = ::fail)
                 app.nodeRuntime.startTicking(lifecycleScope)
+                wireReceiveFailure()
                 wireEvents()
                 wireNotification()
                 try {
@@ -112,14 +114,22 @@ class MeshService : LifecycleService() {
         stopSelf()
     }
 
-    /** Routes core events to the registry and the measurement log. */
+    private fun wireReceiveFailure() {
+        lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            app.nodeRuntime.receiveFailure.collect { failure ->
+                if (failure != null) {
+                    errorState.value = "Local storage or sync resources are full. Some messages were not received."
+                }
+            }
+        }
+    }
+
+    /** Observes core events for diagnostics; lifecycle routing is synchronous. */
     private fun wireEvents() {
         val registry = app.connectionRegistry
         lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
             app.nodeRuntime.events.collect { event ->
                 when (event) {
-                    is Event.Established ->
-                        registry.onEstablished(event.linkId, event.remoteFingerprint)
                     is Event.Reconciled -> {
                         Meas.log(
                             "reconciled",
@@ -143,12 +153,6 @@ class MeshService : LifecycleService() {
                             "entries" to app.nodeRuntime.entryCount.value,
                             "link_avg_in_kbps" to Meas.kbps(metrics.bytesIn, duration),
                         )
-                    }
-                    is Event.Closed -> {
-                        val cause = event.cause
-                        if (cause is uniffi.racnet_core.CloseCause.ProtocolViolation && (cause.code == 4uL || cause.code == 5uL)) {
-                            errorState.value = "Local storage or sync resources are full. Some messages were not received."
-                        }
                     }
                     else -> {}
                 }

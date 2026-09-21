@@ -71,10 +71,3 @@ jobs:
           script: |
             python3 scripts/device_test.py prepare --serial emulator-5554 --apk apk/app-debug.apk --output test-runs/prepare
             python3 scripts/device_test.py offline --serial emulator-5554 --output test-runs/offline
-      - name: Preserve emulator evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: emulator-evidence-api-${{ matrix.api }}
-          path: test-runs/
-          if-no-files-found: ignore

@@ -12,6 +12,12 @@ KOTLIN_OUT="$REPO_ROOT/android/app/src/main/java"
 
 cd "$REPO_ROOT"
 
+case "$(uname -s)" in
+    Linux) HOST_LIBRARY="libracnet_core.so" ;;
+    Darwin) HOST_LIBRARY="libracnet_core.dylib" ;;
+    *) echo "error: Android bindings generation requires a Linux or macOS host" >&2; exit 1 ;;
+esac
+
 # --no-default-features leaves the simulator out of shipped artifacts.
 cargo ndk -t arm64-v8a -t x86_64 -o "$JNI_LIBS" build --release -p racnet-core --no-default-features
 
@@ -19,7 +25,7 @@ cargo ndk -t arm64-v8a -t x86_64 -o "$JNI_LIBS" build --release -p racnet-core -
 # metadata is identical across targets.
 cargo build --release -p racnet-core --no-default-features
 cargo run --release -p uniffi-bindgen -- generate \
-    --library "$REPO_ROOT/target/release/libracnet_core.so" \
+    --library "$REPO_ROOT/target/release/$HOST_LIBRARY" \
     --language kotlin \
     --no-format \
     --out-dir "$KOTLIN_OUT"

@@ -570,6 +570,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom",
  "hmac",
+ "libc",
  "minicbor",
  "sha2",
  "thiserror",

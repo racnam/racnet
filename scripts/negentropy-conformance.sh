@@ -15,6 +15,7 @@ UPSTREAM_COMMIT="76f3cf6e69be505e7295edb08a6152fce30261f1"
 LANGS="${LANGS:-rust,js}"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
 # Rust cache pruning can preserve .git metadata while removing object files.
 # Keep the reference checkout outside target/, which CI treats as build cache.
 work="${NEGENTROPY_WORK_DIR:-$root/.cache/negentropy-conformance}"

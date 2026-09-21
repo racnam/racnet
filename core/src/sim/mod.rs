@@ -160,13 +160,16 @@ impl SimNet {
     }
 
     /// Connects two nodes with a link. Reconnecting an existing pair
-    /// replaces the link's configuration and brings it back up.
+    /// replaces the link's configuration and brings it back up. Pending
+    /// deliveries from the previous connection are discarded.
     pub fn connect(&mut self, a: NodeId, b: NodeId, config: LinkConfig) {
-        if let Some(link) = self
+        if let Some(idx) = self
             .links
-            .iter_mut()
-            .find(|l| (l.a == a && l.b == b) || (l.a == b && l.b == a))
+            .iter()
+            .position(|l| (l.a == a && l.b == b) || (l.a == b && l.b == a))
         {
+            self.events.retain(|event| event.0.link != idx);
+            let link = &mut self.links[idx];
             link.config = config;
             link.up = true;
         } else {
@@ -370,6 +373,39 @@ mod tests {
             .collect();
         assert_eq!(bytes, vec![0x55; 50]);
         assert_eq!(net.now_us(), 5_000);
+    }
+
+    #[test]
+    fn reconnect_discards_only_the_old_connections_pending_events() {
+        let mut net = SimNet::new(1);
+        let a = net.add_node();
+        let b = net.add_node();
+        let c = net.add_node();
+        net.connect(a, b, stream_config());
+        net.connect(a, c, stream_config());
+        net.send(a, b, b"old").unwrap();
+        net.send(a, c, b"other").unwrap();
+        net.partition(&[&[a, c], &[b]]);
+        assert_eq!(net.send(a, b, b"lost"), Err(SimError::LinkDown));
+        net.heal();
+        net.connect(a, b, stream_config());
+        net.send(a, b, b"new").unwrap();
+        net.run_until_idle();
+        assert!(net.take_inbox(a).is_empty(), "no stale link-down event");
+        assert_eq!(
+            net.take_inbox(b),
+            vec![Delivery::Data {
+                from: a,
+                bytes: b"new".to_vec(),
+            }]
+        );
+        assert_eq!(
+            net.take_inbox(c),
+            vec![Delivery::Data {
+                from: a,
+                bytes: b"other".to_vec(),
+            }]
+        );
     }
 
     #[test]

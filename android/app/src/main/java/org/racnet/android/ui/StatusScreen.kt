@@ -27,12 +27,13 @@ fun StatusScreen(
     entries: List<EntryView>,
     error: String?,
     sending: Boolean,
+    draft: String,
+    onDraftChanged: (String) -> Unit,
     onToggleService: (Boolean) -> Unit,
     onCreateEntry: (Int) -> Unit,
-    onSend: (String, () -> Unit) -> Unit,
+    onSend: () -> Unit,
     onShowDiagnostics: () -> Unit,
 ) {
-    var draft by rememberSaveable { mutableStateOf("") }
     var showTools by rememberSaveable { mutableStateOf(false) }
     val messages = remember(entries) {
         entries.mapNotNull { entry ->
@@ -94,7 +95,7 @@ fun StatusScreen(
         }
         OutlinedTextField(
             value = draft,
-            onValueChange = { draft = it },
+            onValueChange = onDraftChanged,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Public message") },
             maxLines = 4,
@@ -102,7 +103,7 @@ fun StatusScreen(
             supportingText = { Text("${draft.trim().toByteArray(Charsets.UTF_8).size} / ${BoardMessage.MAX_BYTES} bytes") },
         )
         Button(
-            onClick = { onSend(draft) { draft = "" } },
+            onClick = onSend,
             enabled = !sending && draft.isNotBlank() && draft.trim().toByteArray(Charsets.UTF_8).size <= BoardMessage.MAX_BYTES,
             modifier = Modifier.fillMaxWidth(),
         ) { Text(if (sending) "Saving…" else "Post to board") }

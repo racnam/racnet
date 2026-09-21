@@ -14,7 +14,8 @@ class NodeRuntimeTest {
         val frames = ArrayDeque<ByteArray>()
         var closed = false
         override fun writeFrames(frames: List<ByteArray>) { this.frames.addAll(frames) }
-        override fun closeFromCore(cause: CloseCause) { closed = true }
+        override fun onEstablished(remoteFingerprint: ByteArray) {}
+        override fun closeFromCore(cause: CloseCause, drainWrites: Boolean) { closed = true }
     }
     private data class Edge(val a: NodeRuntime, val aid: ULong, val ab: Pipe, val b: NodeRuntime, val bid: ULong, val ba: Pipe)
     private suspend fun edge(a: NodeRuntime, b: NodeRuntime): Edge {

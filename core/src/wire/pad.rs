@@ -24,6 +24,9 @@ pub fn is_padded_len(len: usize) -> bool {
 /// Returns the padded length for an inner message of `unpadded` bytes, or
 /// `None` if it exceeds [`MAX_PADDED_LEN`].
 pub fn padded_len(unpadded: usize) -> Option<usize> {
+    if unpadded > MAX_PADDED_LEN {
+        return None;
+    }
     for block in BLOCK_SIZES {
         if unpadded <= block {
             return Some(block);
@@ -61,6 +64,9 @@ mod tests {
     #[test]
     fn rejects_oversized() {
         assert_eq!(padded_len(MAX_PADDED_LEN + 1), None);
+        assert_eq!(padded_len(usize::MAX - 1), None);
+        assert_eq!(padded_len(usize::MAX), None);
+        assert!(!is_padded_len(usize::MAX));
     }
 
     #[test]

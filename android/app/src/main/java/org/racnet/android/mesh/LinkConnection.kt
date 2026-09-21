@@ -8,7 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import org.racnet.android.ble.BleConstants
@@ -30,15 +29,15 @@ class LinkConnection(
     private val runtime: NodeRuntime,
     private val registry: ConnectionRegistry,
     private val parentScope: CoroutineScope,
-    val initiator: Boolean,
-    val metrics: LinkMetrics,
+    override val initiator: Boolean,
+    override val metrics: LinkMetrics,
     /** Invoked exactly once when the connection tears down, however. */
     private val onTeardown: (() -> Unit)? = null,
-) : LinkTransport {
+) : LinkTransport, RegistryConnection {
 
-    val address: String = socket.remoteDevice?.address ?: "00:00:00:00:00:00"
+    override val address: String = socket.remoteDevice?.address ?: "00:00:00:00:00:00"
 
-    var linkId: ULong = ULong.MAX_VALUE
+    @Volatile override var linkId: ULong = ULong.MAX_VALUE
         private set
 
     // A child job: cancelling this connection's loops must never cancel
@@ -48,9 +47,17 @@ class LinkConnection(
             SupervisorJob(parentScope.coroutineContext[Job]) +
             Dispatchers.IO,
     )
-    private val writes = Channel<ByteArray>(Channel.UNLIMITED)
-    private val queuedBytes = java.util.concurrent.atomic.AtomicLong(0)
     private val tornDown = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val coreClosed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val writer = FrameWriter(
+        scope = scope,
+        maxTransmitSize = ::maxTransmitSize,
+        writeChunk = { chunk ->
+            socket.outputStream.write(chunk)
+            metrics.bytesOut += chunk.size
+        },
+        onClosed = { shutdown(reportToCore = !coreClosed.get()) },
+    )
 
     /**
      * Registers the link with the core and starts the pump loops.
@@ -87,6 +94,13 @@ class LinkConnection(
         linkId = open.linkId
         metrics.l2capOpenAtMs = SystemClock.elapsedRealtime()
         registry.register(this)
+        // The core may have closed this transport before returning its id.
+        // shutdown then had no real id to remove; finish that cleanup here.
+        if (tornDown.get()) {
+            registry.remove(this)
+            runtime.onTransportClosedAsync(linkId)
+            return false
+        }
         // Shutdown may have raced registration, e.g. during service stop.
         parentScope.coroutineContext.ensureActive()
         Meas.log(
@@ -96,29 +110,27 @@ class LinkConnection(
             "mtu" to maxTransmitSize(),
         )
 
-        scope.launch { writeLoop() }
+        scope.launch { writer.run() }
         scope.launch { readLoop() }
         return true
     }
 
     override fun writeFrames(frames: List<ByteArray>) {
-        for (frame in frames) {
-            if (tornDown.get()) return
-            if (queuedBytes.addAndGet(frame.size.toLong()) > MAX_QUEUED_BYTES) {
-                Meas.log("write_backpressure", "link" to linkId)
-                shutdown()
-                return
-            }
-            if (!writes.trySend(frame).isSuccess) {
-                queuedBytes.addAndGet(-frame.size.toLong())
-                return
-            }
+        if (tornDown.get() || coreClosed.get()) return
+        if (!writer.enqueue(frames)) {
+            Meas.log("write_backpressure", "link" to linkId)
+            shutdown()
         }
     }
 
-    override fun closeFromCore(cause: CloseCause) {
+    override fun closeFromCore(cause: CloseCause, drainWrites: Boolean) {
         Meas.log("link_closed", "link" to linkId, "cause" to cause::class.simpleName.orEmpty())
-        shutdown(reportToCore = false)
+        coreClosed.set(true)
+        if (drainWrites) writer.finish() else shutdown(reportToCore = false)
+    }
+
+    override fun onEstablished(remoteFingerprint: ByteArray) {
+        registry.onEstablished(linkId, remoteFingerprint)
     }
 
     /**
@@ -126,9 +138,9 @@ class LinkConnection(
      * here (socket death, duplicate-link teardown) the core is told; when
      * the core itself closed the link it must not be re-entered.
      */
-    fun shutdown(reportToCore: Boolean = true) {
+    override fun shutdown(reportToCore: Boolean) {
         if (!tornDown.compareAndSet(false, true)) return
-        writes.cancel()
+        writer.cancel()
         closeSocketQuietly()
         registry.remove(this)
         if (reportToCore) {
@@ -144,34 +156,23 @@ class LinkConnection(
         val buffer = ByteArray(READ_BUFFER_SIZE)
         try {
             val input = socket.inputStream
-            while (true) {
+            while (!coreClosed.get()) {
                 val read = input.read(buffer)
-                if (read < 0) break
+                if (read < 0) {
+                    shutdown(reportToCore = !coreClosed.get())
+                    break
+                }
                 if (read == 0) continue
                 metrics.bytesIn += read
-                runtime.onBytes(linkId, buffer.copyOf(read))
+                if (!coreClosed.get()) runtime.onBytes(linkId, buffer.copyOf(read))
             }
         } catch (e: IOException) {
             // Normal BLE link death.
+            shutdown(reportToCore = !coreClosed.get())
         } finally {
-            shutdown(reportToCore = true)
-        }
-    }
-
-    private suspend fun writeLoop() {
-        try {
-            val output = socket.outputStream
-            for (frame in writes) {
-                for (chunk in FrameChunker.chunk(frame, maxTransmitSize())) {
-                    output.write(chunk)
-                    metrics.bytesOut += chunk.size
-                }
-                queuedBytes.addAndGet(-frame.size.toLong())
-            }
-        } catch (e: IOException) {
-            // Normal BLE link death.
-        } finally {
-            shutdown(reportToCore = true)
+            // A core closure may still have a terminal frame queued. Let
+            // the writer (or its deadline) finish teardown in that case.
+            if (!coreClosed.get()) shutdown(reportToCore = true)
         }
     }
 
@@ -192,7 +193,5 @@ class LinkConnection(
 
     private companion object {
         const val READ_BUFFER_SIZE = 65536
-        // One complete bounded store plus reconciliation framing overhead.
-        const val MAX_QUEUED_BYTES = 72L * 1024 * 1024
     }
 }
