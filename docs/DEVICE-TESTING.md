@@ -72,8 +72,9 @@ identity, empty store): `adb shell pm clear org.racnet.android`.
 
 ## 4. The first-sync smoke test
 
-This is the gate before milestone 5 starts: it validates the §9.1
-binding on real radios before iOS reimplements it.
+This checks the §9.1 binding on real radios. The current foreground baseline
+is recorded in [MEASUREMENTS.md](MEASUREMENTS.md); repeat this smoke test after
+transport changes. It does not complete the remaining M4 acceptance checks.
 
 1. Both phones: mesh on, screens on, within a few meters.
 2. Within ~5–15 s each status screen should show one peer. The
@@ -162,23 +163,27 @@ them to a working session — that bundle is enough to debug from.
 
 ## 8. When this needs doing
 
-- **Before milestone 5 (iOS transport):** §4's smoke test, ideally with
-  quick P1 and P2 rows. iOS implements the same wire binding; a flaw
-  found by two Android phones now is a one-platform fix, the same flaw
-  found after M5 is a two-platform fix. Milestone 4's "Done when" is
-  not satisfied until the smoke test has passed.
-- **Anytime, incrementally:** P3 and the P4 matrix. More device pairs
-  and environments make the tables more useful; nothing downstream
-  blocks on them.
+- **Before iOS transport implementation:** review the recorded foreground
+  baseline and remaining M4 gates against the [M5 plan](M5-IOS-PLAN.md).
+  iOS will implement the same wire binding, so Android findings inform it.
+  Planning does not establish completion of M4 or begin iOS implementation.
+- **Remaining M4 validation:** P1–P4 and physical-phone upgrade preservation.
+  More device pairs and environments make the results more useful. Keep
+  incomplete procedures explicitly pending.
 - **After any transport-touching change:** rerun §4 as the regression
   smoke test on real hardware.
 
-## Android preview acceptance (deferred hardware gate)
+## Android preview acceptance
 
-The Android-first scope supersedes the M5 ordering above. Hardware validation
-may be run later; the preview must not be called radio-validated until then.
-The public board is now the main screen; diagnostic entry buttons are under
-**Peers & tools**. All of these checks are still pending on real phones:
+The Android-first scope remains active. Foreground phone checks have passed;
+[MEASUREMENTS.md](MEASUREMENTS.md) records the hardware, dates, methods, and
+limits. Background survival, throughput/timing/range, and physical-phone
+upgrade preservation remain pending; optional third-phone relay is untested.
+M4 is not complete. The future [M5 iOS plan](M5-IOS-PLAN.md) does not start iOS
+implementation or expand this preview.
+
+The public board is the main screen; diagnostic entry buttons are under
+**Peers & tools**. Use this checklist for regression and remaining acceptance:
 
 1. **One phone, offline:** post two messages with mesh off. Force-stop and
    reopen. Both messages and the author identity must remain. Rotate the
@@ -186,9 +191,12 @@ The public board is now the main screen; diagnostic entry buttons are under
 2. **Two phones:** enable Bluetooth, grant permissions, turn mesh on, and
    verify both directions of message transfer. Post several messages quickly.
    Force-stop and reopen the receiver; received messages must remain too.
+   Consecutive-post convergence has passed, but maximum-rate posting remains
+   untested; do not interpret UI automation cadence as a capacity measurement.
 3. **Reconnect:** stop the mesh on B, post on A, restart B's mesh, and confirm
    convergence. Repeat after disabling/re-enabling Bluetooth; the app should
-   report the stopped radio and allow the mesh to be started again.
+   report the stopped radio. Explicitly restart mesh after enabling Bluetooth
+   and verify convergence. The recorded pass does not claim automatic restart.
 4. **Optional third phone:** connect A–B and B–C with A and C out of radio
    range. Post at A and verify C receives it through B. Reverse the direction.
 5. **Screen off:** run P4, recording the actual device/OS/battery settings.

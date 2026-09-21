@@ -1,7 +1,8 @@
 # Android 0.2.0 preview handoff
 
 This preview implements a public nearby message board on the existing Racnet
-protocol. It is ready for sideload testing; real-radio acceptance is deferred.
+protocol. It is ready for sideload testing; foreground phone checks have passed.
+Remaining physical acceptance is listed below.
 No APK has been published or submitted to an app store.
 
 ## Build and install
@@ -43,12 +44,20 @@ The emulator does not establish real BLE radio performance. The simulator
 and native-runtime tests do not validate OEM Bluetooth stacks or background
 execution. macOS/iOS CI was not run in this Linux session.
 
-## Deferred acceptance
+## Physical acceptance status
 
-Follow the Android preview checklist in [DEVICE-TESTING.md](DEVICE-TESTING.md):
-two physical phones, both-direction message transfer, reconnect, Bluetooth
-switching, and screen-off behavior. Optionally test a third phone for relay.
-Put actual radio results in MEASUREMENTS.md, with device models and OS versions.
+Foreground checks passed for offline persistence, bidirectional transfer,
+received-entry persistence, reconnect catch-up, Bluetooth recovery with an
+explicit mesh restart, draft rotation, and consecutive-post convergence.
+See [MEASUREMENTS.md](MEASUREMENTS.md) for the dated device results and limits;
+the batch check is not a maximum-rate load test.
+
+Unplugged screen-off/background survival, throughput/timing/range procedures,
+and physical-phone upgrade preservation remain pending. Third-phone relay is
+optional and untested. Follow [DEVICE-TESTING.md](DEVICE-TESTING.md) for the
+remaining checks and repeat foreground checks after relevant changes. M4 is
+not complete. [M5-IOS-PLAN.md](M5-IOS-PLAN.md) prepares future iOS work without
+changing the active Android-first scope or starting iOS implementation.
 
 ## Product limits
 
@@ -80,8 +89,9 @@ recover missing Git objects; local conformance and randomized checks passed too.
 
 Read `CLAUDE.md`, this handoff, `docs/PLAN.md`, and
 [TESTING-WITH-PHONES.md](TESTING-WITH-PHONES.md) first. Inspect `git status`
-and current history before editing; this checkpoint describes the state on
-2026-09-19, not a guarantee about later changes.
+and current history before editing. The build and automation sections above
+are dated historical checkpoints; use [MEASUREMENTS.md](MEASUREMENTS.md) for
+the subsequent physical-phone results.
 
 Completed and pushed to `main`:
 
@@ -89,16 +99,13 @@ Completed and pushed to `main`:
 - `03260eb`: device evidence runner, emulator CI, testing and threat documentation.
 - `100608c`: conformance checkout/cache repair.
 
-Physical-phone BLE acceptance remains pending. To begin, inspect connected devices
-with `python3 scripts/device_test.py inventory`, then use explicit serials for
-preparation, offline persistence, and the two-phone test. Follow the linked guide;
-handle unexpected screens or failures as evidence to investigate, not a pass.
-The test operator handles unlock/USB prompts and physical movement. Collect logs,
-screenshots and per-step reports automatically; keep raw evidence in ignored
-`test-runs/`. Record verified hardware results in `docs/MEASUREMENTS.md` with
-actual device/OS and physical conditions. Do not invent range or timing results.
-
-Hardware BLE, Bluetooth toggling, unplugged background behavior and range remain
-pending. iOS transport and the broader roadmap remain outside the Android
-preview scope. Do not redo completed implementation work just because the
-conversation context was reset.
+Foreground phone acceptance has a recorded baseline; remaining physical gates
+are listed above. Inspect connected devices with
+`python3 scripts/device_test.py inventory`, then use explicit serials for
+preparation and repeatable checks. Follow the linked guide; handle unexpected
+screens or failures as evidence to investigate, not a pass. The test operator
+handles unlock/USB prompts and physical movement. Keep raw logs, screenshots,
+and per-step reports in ignored `test-runs/`. Record verified hardware results
+in `docs/MEASUREMENTS.md` with device/OS and physical conditions. Do not infer
+range, timing, maximum-rate capacity, or background survival from foreground
+passes. Do not redo completed implementation work after a context reset.

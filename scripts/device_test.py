@@ -141,10 +141,14 @@ class Device:
     def launch(self):
         self.shell("am", "start", "-W", "-n", PACKAGE + "/.MainActivity")
 
-    def ui(self):
+    def raw_ui(self):
         self.shell("uiautomator", "dump", "/data/local/tmp/racnet-test-ui.xml", timeout=20)
         xml = self.shell("cat", "/data/local/tmp/racnet-test-ui.xml")
         root = ET.fromstring(xml)
+        return root, xml
+
+    def ui(self):
+        root, xml = self.raw_ui()
         if not any(n.get("package") == PACKAGE for n in root.iter("node")):
             raise RuntimeError("Racnet is not visible. Unlock the phone and dismiss system prompts.")
         return root, xml
@@ -189,6 +193,110 @@ class Device:
                     return
             raise RuntimeError("Mesh did not reach requested state; check Bluetooth and permissions")
 
+    def draft(self):
+        root = self.board()
+        fields = [n for n in root.iter("node") if n.get("class") == "android.widget.EditText"]
+        if len(fields) != 1:
+            raise RuntimeError("Cannot identify board draft field")
+        return fields[0]
+
+    def require_empty_draft(self):
+        if self.draft().get("text"):
+            raise RuntimeError("Unsent draft found; save or discard it on the phone before testing")
+
+    def enter_draft(self, marker):
+        self.require_empty_draft()
+        self.tap(self.draft())
+        self.shell("input", "text", marker)
+        self.shell("input", "keyevent", "KEYCODE_BACK")
+
+    def discard_draft(self, marker):
+        field = self.draft()
+        if field.get("text", "") == "":
+            return
+        if field.get("text") != marker:
+            raise RuntimeError("Draft changed; preserving it instead of clearing it")
+        self.tap(field)
+        self.shell("input", "keyevent", "KEYCODE_MOVE_END")
+        for _ in marker:
+            self.shell("input", "keyevent", "KEYCODE_DEL")
+        self.shell("input", "keyevent", "KEYCODE_BACK")
+        if self.draft().get("text"):
+            raise RuntimeError("Synthetic draft cleanup did not clear the field")
+
+    def bluetooth_state(self):
+        output = self.shell("dumpsys", "bluetooth_manager")
+        states = re.findall(r"^\s*state:\s*(ON|OFF|TURNING_ON|TURNING_OFF)\s*$", output, re.MULTILINE | re.IGNORECASE)
+        if len(states) != 1:
+            raise RuntimeError("Cannot identify actual Bluetooth adapter state")
+        return states[0].upper()
+
+    def bluetooth(self, enabled, control):
+        target = "ON" if enabled else "OFF"
+        if self.bluetooth_state() == target:
+            return {"state": target, "control": control}
+        if control == "shell":
+            self.shell("svc", "bluetooth", "enable" if enabled else "disable")
+        else:
+            self.shell("am", "start", "-W", "-a", "android.settings.BLUETOOTH_SETTINGS")
+            root, _ = self.raw_ui()
+            # Only recognized Settings main-switch IDs; never guess from paired-device rows.
+            ids = {"com.android.settings:id/switch_widget", "com.android.settings:id/switch_bar",
+                   "com.android.settings:id/switch_main", "com.android.settings:id/switch_compat"}
+            switches = [n for n in root.iter("node") if n.get("resource-id") in ids
+                        and n.get("checkable") == "true" and n.get("package") == "com.android.settings"]
+            if len(switches) != 1:
+                raise RuntimeError("Cannot uniquely identify Bluetooth Settings switch; handle the OEM layout manually")
+            if (switches[0].get("checked") == "true") == enabled:
+                raise RuntimeError("Bluetooth Settings switch disagrees with adapter state")
+            self.tap(switches[0])
+        deadline = time.monotonic() + 15
+        while self.bluetooth_state() != target:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Bluetooth did not reach requested state; shell control may be unsupported; try --bluetooth-control settings")
+            time.sleep(0.5)
+        self.launch()
+        return {"state": target, "control": control}
+
+    def radio_off_error(self):
+        expected = "Bluetooth is off. Enable it, then turn the mesh on again."
+        for _ in range(5):
+            root = self.board()
+            switches = [n for n in root.iter("node") if n.get("checkable") == "true"]
+            if (len(switches) == 1 and switches[0].get("checked") == "false"
+                    and any(n.get("text") == expected for n in root.iter("node"))
+                    and self.bluetooth_state() == "OFF"):
+                return {"bluetooth": "OFF", "mesh": False, "error": expected}
+        raise RuntimeError("Expected radio-off error and stopped mesh were not observed")
+
+    def rotation_settings(self):
+        return {key: self.shell("settings", "get", "system", key)
+                for key in ("accelerometer_rotation", "user_rotation")}
+
+    def restore_rotation(self, settings):
+        errors = []
+        for key, value in settings.items():
+            try:
+                if value == "null":
+                    self.shell("settings", "delete", "system", key)
+                else:
+                    self.shell("settings", "put", "system", key, value)
+                if self.shell("settings", "get", "system", key) != value:
+                    raise RuntimeError("Rotation setting restoration was not observed")
+            except Exception as error:
+                errors.append(str(error))
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
+    def rotate(self, rotation):
+        self.shell("settings", "put", "system", "accelerometer_rotation", "0")
+        self.shell("settings", "put", "system", "user_rotation", str(rotation))
+        for _ in range(5):
+            root, _ = self.ui()
+            if root.get("rotation") == str(rotation):
+                return {"observed_rotation": rotation}
+        raise RuntimeError("Display did not reach requested rotation")
+
     def stored(self):
         return entries(self.adb("exec-out", "run-as", PACKAGE, "cat", "files/entries.racnet", binary=True))
 
@@ -205,8 +313,7 @@ class Device:
             time.sleep(0.5)
 
     def post(self, marker):
-        root = self.board()
-        field = next(n for n in root.iter("node") if n.get("class") == "android.widget.EditText")
+        field = self.draft()
         if field.get("text"):
             raise RuntimeError("Unsent draft found; save or discard it on the phone before testing")
         self.tap(field)
@@ -348,24 +455,120 @@ def smoke(session, timeout):
         session.step("Verify queued entry reaches B", lambda: b.wait_entry(entry_id=queued["id"], timeout=timeout))
 
 
+def cleanup(session, name, operation):
+    try:
+        session.step(name, operation)
+    except Exception as error:
+        session.report["errors"].append(f"{name}: {error}")
+
+
+def bluetooth_recovery(session, timeout, control):
+    devices = session.devices
+    for device in devices:
+        device.require_empty_draft()
+        if device.bluetooth_state() != "ON":
+            raise RuntimeError("Bluetooth must initially be on for both devices")
+    try:
+        for index, device in enumerate(devices):
+            session.step(f"Enable mesh on device {index + 1}", lambda d=device: d.mesh(True))
+        for index, target in enumerate(devices):
+            peer = devices[1 - index]
+            session.step(f"Disable Bluetooth on device {index + 1}", lambda: target.bluetooth(False, control))
+            session.step("Verify radio-off error and stopped mesh", target.radio_off_error)
+            queued = session.step("Queue entry on peer", lambda: peer.post("racnet-test-" + uuid.uuid4().hex))
+            session.step("Restore Bluetooth", lambda: target.bluetooth(True, control))
+            session.step("Explicitly restart target mesh", lambda: target.mesh(True))
+            session.step("Verify queued entry on target", lambda: target.wait_entry(entry_id=queued["id"], timeout=timeout))
+            reply = session.step("Post reply on target", lambda: target.post("racnet-test-" + uuid.uuid4().hex))
+            session.step("Verify exact reply on peer", lambda: peer.wait_entry(entry_id=reply["id"], timeout=timeout))
+    finally:
+        for index, device in enumerate(devices):
+            cleanup(session, f"Restore Bluetooth on device {index + 1}", lambda d=device: d.bluetooth(True, control))
+
+
+def draft_rotation(session):
+    for device in session.devices:
+        device.require_empty_draft()
+    for index, device in enumerate(session.devices):
+        settings = device.rotation_settings()
+        marker = "racnet-draft-" + uuid.uuid4().hex
+        try:
+            session.step(f"Set portrait on device {index + 1}", lambda: device.rotate(0))
+            session.step("Enter synthetic draft", lambda: device.enter_draft(marker))
+            session.step("Observe landscape rotation", lambda: device.rotate(1))
+
+            def retained():
+                if device.draft().get("text") != marker:
+                    raise RuntimeError("Exact synthetic draft was not retained")
+                return {"exact_draft_retained": True}
+
+            session.step("Verify exact retained draft", retained)
+        finally:
+            cleanup(session, "Restore rotation settings", lambda: device.restore_rotation(settings))
+            cleanup(session, "Remove only synthetic draft", lambda: device.discard_draft(marker))
+
+
+def batch(session, timeout, count):
+    for device in session.devices:
+        device.require_empty_draft()
+    for index, device in enumerate(session.devices):
+        session.step(f"Enable mesh on device {index + 1}", lambda d=device: d.mesh(True))
+    posted = []
+    for index, device in enumerate(session.devices):
+        for number in range(count):
+            posted.append(session.step(f"Post {number + 1} on device {index + 1}",
+                                       lambda d=device: d.post("racnet-test-" + uuid.uuid4().hex)))
+    for phase in ("before restart", "after restart"):
+        if phase == "after restart":
+            for index, device in enumerate(session.devices):
+                session.step(f"Restart device {index + 1}", device.restart)
+        for index, device in enumerate(session.devices):
+            for number, entry in enumerate(posted):
+                session.step(f"Verify entry {number + 1} on device {index + 1} {phase}",
+                             lambda d=device, e=entry: d.wait_entry(entry_id=e["id"], timeout=timeout))
+
+
+def validate_output(folder):
+    resolved = folder.resolve()
+    try:
+        relative = resolved.relative_to(ROOT.resolve())
+    except ValueError:
+        return
+    # Check an evidence filename as well as the directory, without creating either.
+    for path in (relative, relative / "report.json"):
+        result = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "--quiet", "--", str(path)],
+                                capture_output=True)
+        if result.returncode != 0:
+            raise ValueError("Evidence inside the repository must be git-ignored; use test-runs/")
+    if run(["git", "-C", str(ROOT), "ls-files", "--", str(relative)]):
+        raise ValueError("Evidence destination contains tracked files")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["inventory", "prepare", "offline", "pair", "capture"])
+    parser.add_argument("command", choices=["inventory", "prepare", "offline", "pair", "capture", "bluetooth-recovery", "draft-rotation", "batch"])
     parser.add_argument("--serial", action="append", default=[], help="Explicit adb serial; repeat for two phones")
     parser.add_argument("--apk", type=Path, help="prepare only: APK to install in place, never uninstall")
     parser.add_argument("--output", type=Path, help="New evidence directory (must not already exist)")
     parser.add_argument("--seconds", type=int, default=60, help="capture duration")
-    parser.add_argument("--timeout", type=int, default=90, help="pair sync deadline per transfer")
+    parser.add_argument("--timeout", type=int, default=90, help="sync deadline per transfer")
+    parser.add_argument("--count", type=int, help="batch only: posts per phone, 1–20 (default 5)")
+    parser.add_argument("--bluetooth-control", choices=["shell", "settings"],
+                        help="bluetooth-recovery only: radio control (default shell); settings for unsupported OEM shells")
     parser.add_argument("--note", default="", help="Environment/distance/battery configuration as observed")
     args = parser.parse_args(argv)
     if args.seconds < 1 or args.timeout < 1:
         parser.error("durations must be positive")
+    if args.count is not None and (args.command != "batch" or not 1 <= args.count <= 20):
+        parser.error("--count is batch-only and must be between 1 and 20")
+    if args.bluetooth_control is not None and args.command != "bluetooth-recovery":
+        parser.error("--bluetooth-control is only used by bluetooth-recovery")
     if args.command == "inventory":
         print(json.dumps(connected(), indent=2))
         return 0
     if len(set(args.serial)) != len(args.serial):
         parser.error("serials must be distinct")
-    expected = 2 if args.command == "pair" else 1 if args.command == "offline" else None
+    expected = 2 if args.command in ("pair", "batch", "bluetooth-recovery") else 1 if args.command == "offline" else None
     if not args.serial or (expected is not None and len(args.serial) != expected):
         parser.error(f"select {'exactly ' + str(expected) if expected else 'one or more'} device(s) with --serial")
     if args.command == "prepare" and (args.apk is None or not args.apk.is_file()):
@@ -378,6 +581,10 @@ def main(argv=None):
             parser.error(f"{serial}: {available.get(serial, 'not connected')}; connect/unlock and accept USB debugging")
     devices = [Device(serial) for serial in args.serial]
     folder = args.output or ROOT / "test-runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
+    try:
+        validate_output(folder)
+    except ValueError as error:
+        parser.error(str(error))
     session = Session(folder, devices, args.command, args.note)
     exit_code = 1
     try:
@@ -395,7 +602,14 @@ def main(argv=None):
             time.sleep(args.seconds)
             session.report["status"] = "captured_not_evaluated"
         else:
-            smoke(session, args.timeout)
+            if args.command == "bluetooth-recovery":
+                bluetooth_recovery(session, args.timeout, args.bluetooth_control or "shell")
+            elif args.command == "draft-rotation":
+                draft_rotation(session)
+            elif args.command == "batch":
+                batch(session, args.timeout, args.count or 5)
+            else:
+                smoke(session, args.timeout)
             session.report["status"] = "passed"
         exit_code = 0
     except KeyboardInterrupt:
@@ -405,7 +619,7 @@ def main(argv=None):
         session.report.update(status="failed", failure=str(error))
         print(str(error), file=sys.stderr)
     finally:
-        if args.command in ("offline", "pair"):
+        if args.command in ("offline", "pair", "batch", "bluetooth-recovery", "draft-rotation"):
             for device in devices:
                 try:
                     device.mesh(False)

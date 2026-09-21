@@ -13,7 +13,9 @@ Use spare/test phones or be comfortable retaining public synthetic test posts.
 With authorized ADB access, the test runner can install the debug APK in place,
 grant its runtime permissions, open the board, post unique markers, read the
 app's committed entry IDs, verify transfer in both directions, restart the
-receiver, and check offline retention and reconnect catch-up. It also records
+receiver, and check offline retention and reconnect catch-up. Additional commands
+check Bluetooth off/on recovery, draft retention through rotation, and batches
+of consecutive posts. It also records
 models, OS/build versions, package versions, git commit, UTC times, test steps,
 app-tagged logcat, screenshots, and UI XML in one evidence directory.
 
@@ -63,15 +65,53 @@ python3 scripts/device_test.py pair --serial SERIAL_A --serial SERIAL_B \
 # Passive capture while you perform a physical scenario; does not grade it.
 python3 scripts/device_test.py capture --serial SERIAL_A --serial SERIAL_B \
   --seconds 600 --note 'Describe the actual scenario and settings here'
+
+# Toggle each phone's Bluetooth, check the radio-off warning, restart mesh,
+# and verify queued messages and replies by exact entry ID.
+python3 scripts/device_test.py bluetooth-recovery \
+  --serial SERIAL_A --serial SERIAL_B --timeout 90
+
+# For devices that reject shell Bluetooth control, use the Settings switch.
+# The same selected control method is used on both phones.
+python3 scripts/device_test.py bluetooth-recovery \
+  --serial SERIAL_A --serial SERIAL_B --bluetooth-control settings
+
+# Check a synthetic draft across rotation on each explicitly selected phone.
+python3 scripts/device_test.py draft-rotation \
+  --serial SERIAL_A --serial SERIAL_B
+
+# Post five messages on each phone, then check convergence and persistence.
+python3 scripts/device_test.py batch \
+  --serial SERIAL_A --serial SERIAL_B --count 5 --timeout 90
 ```
 
-`offline` and `pair` post synthetic public messages and leave them in the store.
-They stop the mesh at the end. Existing unsent drafts block posting rather
+`offline`, `pair`, `bluetooth-recovery`, and `batch` post synthetic public
+messages and leave them in the store. Functional tests stop the mesh at the
+end. Existing unsent drafts block posting rather
 than being overwritten. Keep the phones unlocked on Racnet during automated
 UI steps. A notification, lock screen, or unexpected layout can stop a run;
 that is a test-runner limitation to investigate, not proof the radio failed.
 Only `prepare` installs/grants permissions. Every device must be explicitly
 selected; the script does not auto-pick a connected personal phone.
+
+`bluetooth-recovery` requires Bluetooth on initially. It verifies actual radio
+state changes and the app's stopped-mesh/error state before enabling the radio
+and explicitly starting mesh again. This does not test automatic mesh restart.
+The default shell control must work on both phones; use the explicit Settings
+mode for OEMs that reject it. Settings mode accepts only a uniquely identified
+Bluetooth switch and stops for an unsupported layout. Radio state is restored
+after the scenario, including failure paths. Bluetooth auto-off policies and
+battery exemptions are not changed by the runner.
+
+`draft-rotation` refuses existing drafts, enters a unique synthetic draft, and
+requires an observed orientation change plus exact retained text. It restores
+the original rotation settings and removes only its unchanged synthetic draft.
+If the text has changed, it is preserved and cleanup is reported as incomplete.
+
+`batch` accepts `--count` from 1 to 20, defaulting to five per phone. It finishes
+posting both batches before checking remote delivery, then verifies every entry
+on both phones again after app restarts. The pace includes UI automation and
+local persistence checks; it is not a maximum-rate or radio-throughput test.
 
 ## Evidence and recording
 
@@ -84,11 +124,17 @@ Each run creates an ignored `test-runs/<UTC-time>-<id>/` directory:
 Screenshots/XML can include board messages and device identifiers. Evidence
 stays local and is excluded from git. Review/redact it before sharing. No logs
 are uploaded by this script. CI uploads only its own disposable emulator data.
+Custom `--output` directories inside the checkout must also be ignored and
+untracked; the runner rejects other repository destinations before writing.
+An output directory outside the checkout remains private evidence and must not
+be uploaded without review.
 
 A passive capture is `captured_not_evaluated`, never an automatic pass.
 Missing evidence is marked incomplete. Timing is desktop-observed automation
 latency, not BLE throughput. Event counts may include the start-second boundary
 and are diagnostic only. Emulator results are explicitly identified.
+Failed state restoration or draft cleanup prevents a complete passing result
+and produces a nonzero exit status.
 
 After a run, the evidence can be analyzed here, failures fixed, and a concise
 verified result added to `docs/MEASUREMENTS.md`. Physical conditions not present
